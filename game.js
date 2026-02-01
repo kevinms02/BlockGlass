@@ -32,7 +32,10 @@ let dragState = {
     sourceElement: null,
     dragOffsetRow: 0,
     dragOffsetCol: 0,
-    currentGradient: null // Store the color for the trail
+    currentGradient: null, // Store the color for the trail
+    lastHighlightedCell: null,
+    gridRect: null,
+    cellSize: 0
 };
 
 // ========================================
@@ -175,6 +178,19 @@ const sounds = {
 
         nsrc.start(t);
         nsrc.stop(t + 0.5);
+    },
+    tick: () => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.05);
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.05);
     }
 };
 
@@ -713,8 +729,12 @@ function startBlockDrag(e, index, block) {
     // Calculate center offset for grid alignment
     // (rows/2, cols/2) ensures we pick the cell corresponding to the center of the block
     const { rows, cols } = getBlockDimensions(block.cells);
-    dragState.dragOffsetRow = Math.floor(rows / 2);
     dragState.dragOffsetCol = Math.floor(cols / 2);
+
+    // Cache grid dimensions for performance
+    const gridRect = elements.gameGrid.getBoundingClientRect();
+    dragState.gridRect = gridRect;
+    dragState.cellSize = gridRect.width / GRID_SIZE;
 
     createBlockGhost(block, e.clientX, e.clientY);
 }
@@ -800,11 +820,18 @@ function handlePointerMove(e) {
 
     updateGhostPosition(e.clientX, e.clientY);
 
-    // Find cell under pointer
-    const cell = getCellUnderPointer(e.clientX, e.clientY);
-    if (cell) {
-        const row = parseInt(cell.dataset.row);
-        const col = parseInt(cell.dataset.col);
+    // Find cell under pointer using optimized math
+    const cellCoords = getCellCoordsAt(e.clientX, e.clientY);
+
+    if (cellCoords) {
+        const { row, col } = cellCoords;
+
+        // Sound feedback on new cell
+        const cellKey = `${row}-${col}`;
+        if (dragState.lastHighlightedCell !== cellKey) {
+            sounds.tick();
+            dragState.lastHighlightedCell = cellKey;
+        }
 
         // Calculate target origin (top-left) of the block based on the offset
         let targetRow = row;
@@ -814,24 +841,23 @@ function handlePointerMove(e) {
             targetRow -= dragState.dragOffsetRow;
             targetCol -= dragState.dragOffsetCol;
             highlightPlacement(targetRow, targetCol);
-        } else if (dragState.powerupType === 'bomb') {
-            // For bomb, highlight center
-            highlightPlacement(row, col);
-        } else if (dragState.powerupType === 'fill') {
+        } else {
             highlightPlacement(row, col);
         }
     } else {
-        clearGridHighlights();
+        if (dragState.lastHighlightedCell !== null) {
+            clearGridHighlights();
+            dragState.lastHighlightedCell = null;
+        }
     }
 }
 
 function handlePointerUp(e) {
     if (!dragState.isDragging) return;
 
-    const cell = getCellUnderPointer(e.clientX, e.clientY);
-    if (cell) {
-        const row = parseInt(cell.dataset.row);
-        const col = parseInt(cell.dataset.col);
+    const cellCoords = getCellCoordsAt(e.clientX, e.clientY);
+    if (cellCoords) {
+        const { row, col } = cellCoords;
 
         let targetRow = row;
         let targetCol = col;
@@ -866,6 +892,10 @@ function endDrag() {
         dragState.ghostElement.remove();
         dragState.ghostElement = null;
     }
+
+    dragState.lastHighlightedCell = null;
+    dragState.gridRect = null;
+    dragState.cellSize = 0;
 
     clearGridHighlights();
 }
@@ -906,29 +936,35 @@ function spawnTrailParticle(x, y, gradient) {
     setTimeout(() => trail.remove(), 500);
 }
 
-let cachedGridCells = null;
+function getCellCoordsAt(x, y) {
+    if (!dragState.gridRect) return null;
+
+    const rect = dragState.gridRect;
+    const size = dragState.cellSize;
+
+    // Relative to grid top-left
+    const relX = x - rect.left;
+    const relY = y - rect.top;
+
+    if (relX < 0 || relX >= rect.width || relY < 0 || relY >= rect.height) {
+        return null;
+    }
+
+    const col = Math.floor(relX / size);
+    const row = Math.floor(relY / size);
+
+    if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
+        return { row, col };
+    }
+
+    return null;
+}
 
 function getCellUnderPointer(x, y) {
-    // Cache grid cells to avoid querySelectorAll in high-frequency loop
-    if (!cachedGridCells) {
-        cachedGridCells = Array.from(document.querySelectorAll('.grid-cell'));
+    const coords = getCellCoordsAt(x, y);
+    if (coords) {
+        return getCellElement(coords.row, coords.col);
     }
-
-    // Slight tolerance for gaps
-    const HIT_TOLERANCE = 5;
-
-    for (const cell of cachedGridCells) {
-        const rect = cell.getBoundingClientRect();
-
-        // Point-in-rect check
-        if (x >= rect.left - HIT_TOLERANCE &&
-            x <= rect.right + HIT_TOLERANCE &&
-            y >= rect.top - HIT_TOLERANCE &&
-            y <= rect.bottom + HIT_TOLERANCE) {
-            return cell;
-        }
-    }
-
     return null;
 }
 
