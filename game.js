@@ -55,56 +55,99 @@ const sounds = {
             data[i] = Math.random() * 2 - 1;
         }
         this.buffer.noise = buffer;
+
+        // Load custom sounds
+        this.loadSound('Assets/SoundEffects/voicebosch-missile-explosion-168600.mp3', 'boom');
+        this.loadSound('Assets/SoundEffects/game-start-317318.mp3', 'gameStart');
+        this.loadSound('Assets/SoundEffects/video-game-bonus-323603.mp3', 'cleanSlate');
+        this.loadSound('Assets/SoundEffects/fail-234710.mp3', 'fail');
+        this.loadSound('Assets/SoundEffects/block-placed.mp3', 'place');
+    },
+    loadSound: function (url, key) {
+        fetch(url)
+            .then(response => response.arrayBuffer())
+            .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
+            .then(audioBuffer => {
+                this.buffer[key] = audioBuffer;
+            })
+            .catch(e => console.warn(`Failed to load sound ${key}:`, e));
     },
     place: (frequency = 440) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.frequency.value = frequency;
-        osc.type = 'sine';
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-        osc.start(audioCtx.currentTime);
-        osc.stop(audioCtx.currentTime + 0.1);
+        if (sounds.buffer.place) {
+            const source = audioCtx.createBufferSource();
+            source.buffer = sounds.buffer.place;
+            source.connect(audioCtx.destination);
+            source.start(0);
+        } else {
+            // Fallback
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.value = frequency;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
     },
-    clear: () => {
-        // Bubbly clear sound - Pitch scaling removed per user request
-        const t = audioCtx.currentTime;
-        const pitchMultiplier = 1.0;
+    clear: (count = 1) => {
+        // Play game start sound for clear
+        if (sounds.buffer.gameStart) {
+            const playSound = (offset) => {
+                const source = audioCtx.createBufferSource();
+                source.buffer = sounds.buffer.gameStart;
+                source.connect(audioCtx.destination);
+                // Start 0.4s into the buffer to skip any silence/buildup
+                source.start(audioCtx.currentTime + offset, 0.4);
+            };
 
-        // Low bubbling layer
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
+            playSound(0);
 
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(300 * pitchMultiplier, t);
-        osc.frequency.linearRampToValueAtTime(600 * pitchMultiplier, t + 0.1);
-        osc.frequency.linearRampToValueAtTime(100 * pitchMultiplier, t + 0.2);
+            // "Double" the sound for each extra line count
+            const extraPlays = Math.min(count - 1, 3);
+            for (let i = 0; i < extraPlays; i++) {
+                playSound((i + 1) * 0.08); // 80ms stagger
+            }
+        } else {
+            // Fallback synth
+            const t = audioCtx.currentTime;
+            const pitchMultiplier = 1.0;
 
-        gain.gain.setValueAtTime(0.4, t);
-        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+            // Low bubbling layer
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
 
-        osc.start(t);
-        osc.stop(t + 0.3);
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(300 * pitchMultiplier, t);
+            osc.frequency.linearRampToValueAtTime(600 * pitchMultiplier, t + 0.1);
+            osc.frequency.linearRampToValueAtTime(100 * pitchMultiplier, t + 0.2);
 
-        // High "pop" layer
-        const popOsc = audioCtx.createOscillator();
-        const popGain = audioCtx.createGain();
-        popOsc.connect(popGain);
-        popGain.connect(audioCtx.destination);
+            gain.gain.setValueAtTime(0.4, t);
+            gain.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
 
-        popOsc.type = 'sine';
-        popOsc.frequency.setValueAtTime(800 * pitchMultiplier, t);
-        popOsc.frequency.exponentialRampToValueAtTime(1200 * pitchMultiplier, t + 0.1);
+            osc.start(t);
+            osc.stop(t + 0.3);
 
-        popGain.gain.setValueAtTime(0.3, t);
-        popGain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+            // High "pop" layer
+            const popOsc = audioCtx.createOscillator();
+            const popGain = audioCtx.createGain();
+            popOsc.connect(popGain);
+            popGain.connect(audioCtx.destination);
 
-        popOsc.start(t);
-        popOsc.stop(t + 0.15);
+            popOsc.type = 'sine';
+            popOsc.frequency.setValueAtTime(800 * pitchMultiplier, t);
+            popOsc.frequency.exponentialRampToValueAtTime(1200 * pitchMultiplier, t + 0.1);
+
+            popGain.gain.setValueAtTime(0.3, t);
+            popGain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+
+            popOsc.start(t);
+            popOsc.stop(t + 0.15);
+        }
     },
     powerup: () => {
         const osc = audioCtx.createOscillator();
@@ -120,64 +163,83 @@ const sounds = {
         osc.stop(audioCtx.currentTime + 0.15);
     },
     boom: () => {
-        // Deep explosion with rumble
-        const t = audioCtx.currentTime;
-        const noisesrc = audioCtx.createBufferSource();
-        noisesrc.buffer = sounds.buffer.noise;
-        const noisegain = audioCtx.createGain();
-        const noisefilter = audioCtx.createBiquadFilter();
+        // Play custom missile explosion
+        if (sounds.buffer.boom) {
+            const source = audioCtx.createBufferSource();
+            source.buffer = sounds.buffer.boom;
+            source.connect(audioCtx.destination);
+            // Start 0.4s into buffer to skip silence, just like clear sound
+            source.start(0, 0.4);
+            // Crop to 0.5 second duration per user request
+            source.stop(audioCtx.currentTime + 0.5);
+        } else {
+            // Fallback to synth if not loaded
+            const t = audioCtx.currentTime;
+            const noisesrc = audioCtx.createBufferSource();
+            noisesrc.buffer = sounds.buffer.noise;
+            const noisegain = audioCtx.createGain();
+            const noisefilter = audioCtx.createBiquadFilter();
 
-        noisesrc.connect(noisefilter);
-        noisefilter.connect(noisegain);
-        noisegain.connect(audioCtx.destination);
+            noisesrc.connect(noisefilter);
+            noisefilter.connect(noisegain);
+            noisegain.connect(audioCtx.destination);
 
-        noisefilter.type = 'lowpass';
-        noisefilter.frequency.setValueAtTime(800, t);
-        noisefilter.frequency.exponentialRampToValueAtTime(100, t + 0.5);
+            noisefilter.type = 'lowpass';
+            noisefilter.frequency.setValueAtTime(800, t);
+            noisefilter.frequency.exponentialRampToValueAtTime(100, t + 0.5);
 
-        noisegain.gain.setValueAtTime(0.8, t);
-        noisegain.gain.exponentialRampToValueAtTime(0.01, t + 0.8);
+            noisegain.gain.setValueAtTime(0.8, t);
+            noisegain.gain.exponentialRampToValueAtTime(0.01, t + 0.8);
 
-        noisesrc.start(t);
-        noisesrc.stop(t + 0.8);
+            noisesrc.start(t);
+            noisesrc.stop(t + 0.8);
+        }
     },
     fail: () => {
-        const t = audioCtx.currentTime;
+        // Play custom fail sound
+        if (sounds.buffer.fail) {
+            const source = audioCtx.createBufferSource();
+            source.buffer = sounds.buffer.fail;
+            source.connect(audioCtx.destination);
+            source.start(0);
+        } else {
+            const t = audioCtx.currentTime;
 
-        // Dissatisfying descending tones
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
+            // Dissatisfying descending tones
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
 
-        osc.frequency.setValueAtTime(300, t);
-        osc.frequency.linearRampToValueAtTime(100, t + 0.6);
-        osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(300, t);
+            osc.frequency.linearRampToValueAtTime(100, t + 0.6);
+            osc.type = 'sawtooth';
 
-        gain.gain.setValueAtTime(0.3, t);
-        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.6);
+            gain.gain.setValueAtTime(0.3, t);
+            gain.gain.exponentialRampToValueAtTime(0.01, t + 0.6);
 
-        osc.start(t);
-        osc.stop(t + 0.6);
+            osc.start(t);
+            osc.stop(t + 0.6);
 
-        // Fail noise
-        const nsrc = audioCtx.createBufferSource();
-        nsrc.buffer = sounds.buffer.noise;
-        const ngain = audioCtx.createGain();
-        const nfilter = audioCtx.createBiquadFilter();
+            // Fail noise
+            const nsrc = audioCtx.createBufferSource();
+            nsrc.buffer = sounds.buffer.noise;
+            const ngain = audioCtx.createGain();
+            const nfilter = audioCtx.createBiquadFilter();
 
-        nsrc.connect(nfilter);
-        nfilter.connect(ngain);
-        ngain.connect(audioCtx.destination);
+            nsrc.connect(nfilter);
+            nfilter.connect(ngain);
+            ngain.connect(audioCtx.destination);
 
-        nfilter.type = 'lowpass';
-        nfilter.frequency.setValueAtTime(500, t);
+            nfilter.type = 'lowpass';
+            nfilter.frequency.setValueAtTime(500, t);
 
-        ngain.gain.setValueAtTime(0.2, t);
-        ngain.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+            ngain.gain.setValueAtTime(0.2, t);
+            ngain.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
 
-        nsrc.start(t);
-        nsrc.stop(t + 0.5);
+            nsrc.start(t);
+            nsrc.stop(t + 0.5);
+        }
     },
     tick: () => {
         const osc = audioCtx.createOscillator();
@@ -215,7 +277,23 @@ const BLOCK_SHAPES = [
     { cells: [[0, 0], [0, 1], [0, 2], [1, 1]], gradient: 5 },
     { cells: [[0, 1], [1, 0], [1, 1], [1, 2], [2, 1]], gradient: 6 },
     { cells: [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]], gradient: 7 },
-    { cells: [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], [2, 0], [2, 1], [2, 2]], gradient: 1 }
+    { cells: [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], [2, 0], [2, 1], [2, 2]], gradient: 1 },
+
+    // Shape 1: Large Corner (3x3 L) and rotations
+    { cells: [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2]], gradient: 2 }, // Base
+    { cells: [[0, 0], [0, 1], [0, 2], [1, 0], [2, 0]], gradient: 3 }, // Rot 90
+    { cells: [[0, 0], [0, 1], [0, 2], [1, 2], [2, 2]], gradient: 4 }, // Rot 180
+    { cells: [[0, 2], [1, 2], [2, 0], [2, 1], [2, 2]], gradient: 5 }, // Rot 270
+
+    // Shape 2: Diagonal 2 and rotation
+    { cells: [[0, 0], [1, 1]], gradient: 6 }, // Base \
+    { cells: [[0, 1], [1, 0]], gradient: 7 }, // Rot /
+
+    // Shape 3: Diagonal 3 and rotations
+    // Note: 3x3 diagonal effectively has 2 main directions, but user asked for "all variations"
+    // For a centered 3x3 diagonal, rotation 180 is same as 0. 90 is same as 270.
+    { cells: [[0, 0], [1, 1], [2, 2]], gradient: 1 }, // Base \
+    { cells: [[0, 2], [1, 1], [2, 0]], gradient: 2 }  // Rot /
 ];
 
 // ========================================
@@ -252,6 +330,8 @@ const elements = {
 // ========================================
 function initGame() {
     createGrid();
+    addRandomStartBlocks();
+    renderGrid(); // Force render to show start blocks
     generateNewBlocks();
     updateUI();
     setupPowerups();
@@ -320,6 +400,18 @@ function startPowerupDrag(e, type) {
     dragState.powerupType = type;
     dragState.blockIndex = null;
 
+    // Determine gradient for fill tool immediately so ghost matches placement
+    if (type === 'fill') {
+        dragState.currentGradient = Math.floor(Math.random() * 7) + 1;
+    } else {
+        dragState.currentGradient = null;
+    }
+
+    // Initialize grid metrics for drag calculations
+    const gridRect = elements.gameGrid.getBoundingClientRect();
+    dragState.gridRect = gridRect;
+    dragState.cellSize = gridRect.width / GRID_SIZE;
+
     // Create ghost element for power-up
     createPowerupGhost(type, e.clientX, e.clientY);
 }
@@ -338,22 +430,25 @@ function createPowerupGhost(type, x, y) {
             [0, 0, 1, 0, 0]
         ];
 
-        let gridHtml = '<div class="ghost-grid bomb-grid">';
+        const size = dragState.cellSize || 40;
+        let gridHtml = `<div class="ghost-grid bomb-grid" style="grid-template-columns: repeat(5, ${size}px); grid-template-rows: repeat(5, ${size}px);">`;
         for (let r = 0; r < 5; r++) {
             for (let c = 0; c < 5; c++) {
                 // Add active class if part of pattern
                 const activeClass = pattern[r][c] ? 'bomb-cell active' : 'bomb-cell-empty';
-                gridHtml += `<div class="ghost-cell ${activeClass}"></div>`;
+                gridHtml += `<div class="ghost-cell ${activeClass}" style="width: ${size}px; height: ${size}px;"></div>`;
             }
         }
         gridHtml += '</div>';
         dragState.ghostElement.innerHTML = gridHtml;
 
     } else if (type === 'fill') {
+        const size = dragState.cellSize || 40;
+
         // Single cell for fill
         dragState.ghostElement.innerHTML = `
-            <div class="ghost-grid fill-grid">
-                <div class="ghost-cell fill-cell active"></div>
+            <div class="ghost-grid" style="grid-template-columns: ${size}px; grid-template-rows: ${size}px;">
+                <div class="ghost-cell fill-cell active" style="width: ${size}px; height: ${size}px; background: var(--gradient-${dragState.currentGradient || 4})"></div>
             </div>
         `;
     }
@@ -473,8 +568,7 @@ function executeBomb(centerRow, centerCol) {
                     cell.classList.remove('filled');
                     cell.style.background = '';
 
-                    // Small liquid sound for each block
-                    sounds.clear();
+                    // No sound for individual blocks during bomb, let explosion dominate
                     destroyedCount++;
                 }
             }, d * 80);
@@ -482,12 +576,13 @@ function executeBomb(centerRow, centerCol) {
     });
 
     gameState.powerups.bomb--;
-    updateUI();
     updatePowerupUI();
+    hideStuckPopup();
 
     // Check game over only after animation finishes roughly
     setTimeout(() => {
-        checkAndClearLines(centerRow, centerCol);
+        // Suppress sound for lines cleared by bomb
+        checkAndClearLines(centerRow, centerCol, true);
         checkGameOver();
     }, 400);
 }
@@ -500,12 +595,15 @@ function executeFill(row, col) {
 
     if (navigator.vibrate) navigator.vibrate(50);
 
-    const gradient = Math.floor(Math.random() * 7) + 1;
+    // Use the gradient chosen during drag, or random if not dragging (fallback)
+    const gradient = dragState.currentGradient || Math.floor(Math.random() * 7) + 1;
     gameState.grid[row][col] = gradient;
 
     const cell = getCellElement(row, col);
-    cell.classList.add('filled');
-    cell.style.background = `var(--gradient-${gradient})`;
+    if (cell) {
+        cell.classList.add('filled');
+        cell.style.background = `var(--gradient-${gradient})`;
+    }
 
     gameState.powerups.fill--;
     sounds.place(660);
@@ -649,6 +747,16 @@ function generateNewBlocks() {
         if (attempt === 0) bestSet = candidateSet; // Keep first guess as fallback
     }
 
+    // MERCY FALLBACK: If no valid set found after 50 attempts, give 1x1 mercy blocks
+    if (!validSetFound) {
+        console.log("Mercy fallback triggered: Generating 1x1 blocks.");
+        bestSet = [
+            { ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 },
+            { ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 },
+            { ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 }
+        ];
+    }
+
     // Assign IDs to the chosen set
     gameState.availableBlocks = bestSet.map((block, i) => ({
         ...block,
@@ -729,6 +837,7 @@ function startBlockDrag(e, index, block) {
     // Calculate center offset for grid alignment
     // (rows/2, cols/2) ensures we pick the cell corresponding to the center of the block
     const { rows, cols } = getBlockDimensions(block.cells);
+    dragState.dragOffsetRow = Math.floor(rows / 2);
     dragState.dragOffsetCol = Math.floor(cols / 2);
 
     // Cache grid dimensions for performance
@@ -745,16 +854,24 @@ function createBlockGhost(block, x, y) {
     dragState.ghostElement = document.createElement('div');
     dragState.ghostElement.className = 'drag-ghost';
 
+    // Use dynamic cell size if available, otherwise fallback to 40
+    // We do NOT use transform scale here because we are setting explicit pixel sizes below.
+    const size = dragState.cellSize || 40;
+
+    const gap = 3; // Match CSS gap if possible, or use 0
+
     const ghostGrid = document.createElement('div');
     ghostGrid.className = 'ghost-grid';
-    ghostGrid.style.gridTemplateColumns = `repeat(${cols}, 38px)`;
-    ghostGrid.style.gridTemplateRows = `repeat(${rows}, 38px)`;
-    ghostGrid.style.gap = '3px';
+    ghostGrid.style.gridTemplateColumns = `repeat(${cols}, ${size}px)`;
+    ghostGrid.style.gridTemplateRows = `repeat(${rows}, ${size}px)`;
+    ghostGrid.style.gap = '2px'; // Slight gap for visual delineation
 
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
             const cell = document.createElement('div');
             cell.className = 'ghost-cell';
+            cell.style.width = `${size}px`;
+            cell.style.height = `${size}px`;
 
             const isActive = block.cells.some(([br, bc]) => br === r && bc === c);
             if (isActive) {
@@ -1159,7 +1276,7 @@ function showPraise(linesCleared, combo) {
 // ========================================
 // Check and Clear Lines
 // ========================================
-function checkAndClearLines(sourceRow, sourceCol) {
+function checkAndClearLines(sourceRow, sourceCol, suppressSound = false) {
     const linesToClear = [];
 
     for (let row = 0; row < GRID_SIZE; row++) {
@@ -1177,10 +1294,86 @@ function checkAndClearLines(sourceRow, sourceCol) {
 
     if (linesToClear.length > 0) {
         clearLines(linesToClear, sourceRow, sourceCol);
-        sounds.clear();
+
+        // Play sound unless suppressed (e.g., by bomb)
+        if (!suppressSound) {
+            sounds.clear(linesToClear.length);
+        }
+
+        // Check for "Clean Slate" (Empty Grid) after clearing
+        // We delay slightly to let the clear happen logically
+        setTimeout(() => {
+            const isEmpty = gameState.grid.every(row => row.every(cell => cell === null));
+            if (isEmpty) {
+                triggerCleanSlateEffect();
+            }
+        }, 100);
     }
 
     return linesToClear.length;
+}
+
+function triggerCleanSlateEffect() {
+    // Visual shake
+    elements.gameGrid.classList.add('shake-clean');
+    setTimeout(() => elements.gameGrid.classList.remove('shake-clean'), 500);
+
+    // Bonus points
+    gameState.score += 500;
+    showFloatingScore(500, 3, 3, true);
+
+    // Praise
+    showPraise(0, 5);
+    elements.praiseNotification.textContent = "CLEAN SLATE!";
+    elements.praiseNotification.classList.remove('hidden');
+    setTimeout(() => elements.praiseNotification.classList.add('hidden'), 1500);
+
+    // Sound
+    if (sounds.buffer.cleanSlate) {
+        const source = audioCtx.createBufferSource();
+        source.buffer = sounds.buffer.cleanSlate;
+        source.connect(audioCtx.destination);
+        source.start(0);
+    } else {
+        sounds.powerup();
+    }
+}
+
+function addRandomStartBlocks() {
+    // Add 2-3 random shapes to start
+    const count = Math.floor(Math.random() * 2) + 2;
+    let placed = 0;
+    let attempts = 0;
+
+    // Use a simplified version of canPlaceBlock for random placement
+    const canPlace = (r, c, cells) => {
+        return cells.every(([br, bc]) => {
+            const tr = r + br;
+            const tc = c + bc;
+            return tr >= 0 && tr < GRID_SIZE && tc >= 0 && tc < GRID_SIZE && gameState.grid[tr][tc] === null;
+        });
+    };
+
+    while (placed < count && attempts < 100) {
+        // Pick random shape, excluding the single block (index 0)
+        // BLOCK_SHAPES[0] is usually the single cell. We want interesting shapes.
+        const shapeIndex = Math.floor(Math.random() * (BLOCK_SHAPES.length - 1)) + 1;
+        const shape = BLOCK_SHAPES[shapeIndex];
+
+        const r = Math.floor(Math.random() * (GRID_SIZE - 2));
+        const c = Math.floor(Math.random() * (GRID_SIZE - 2));
+
+        if (canPlace(r, c, shape.cells)) {
+            // Place it
+            shape.cells.forEach(([br, bc]) => {
+                const tr = r + br;
+                const tc = c + bc;
+                gameState.grid[tr][tc] = shape.gradient;
+            });
+            placed++;
+        }
+        attempts++;
+    }
 }
 
 function clearLines(lines, sourceRow = 4, sourceCol = 4) {
@@ -1289,7 +1482,34 @@ function checkGameOver() {
     });
 
     if (!canPlaceAny) {
-        gameOver();
+        // If they have Bomb or Roll, show the "Stuck?" popup instead of Game Over
+        const hasHelpers = gameState.powerups.bomb > 0 || gameState.powerups.roll > 0;
+
+        if (hasHelpers) {
+            showStuckPopup();
+        } else {
+            gameOver();
+        }
+    } else {
+        hideStuckPopup();
+    }
+}
+
+function showStuckPopup() {
+    if (!elements.stuckPopup) {
+        elements.stuckPopup = document.createElement('div');
+        elements.stuckPopup.id = 'stuckPopup';
+        elements.stuckPopup.className = 'stuck-notification hidden';
+        elements.stuckPopup.textContent = 'STUCK? USE A HELPER!';
+        document.body.appendChild(elements.stuckPopup);
+    }
+
+    elements.stuckPopup.classList.remove('hidden');
+}
+
+function hideStuckPopup() {
+    if (elements.stuckPopup) {
+        elements.stuckPopup.classList.add('hidden');
     }
 }
 
