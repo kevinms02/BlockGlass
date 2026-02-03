@@ -1261,11 +1261,12 @@ body {
 .game-footer {
     width: 100%;
     margin-top: 24px;
-    padding: 16px 0;
+    padding: 8px 0;
     border-top: 1px solid var(--glass-border);
     background: rgba(13, 17, 23, 0.4);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
+    font-size: 0.7rem;
 }
 
 .footer-content {
@@ -1275,13 +1276,57 @@ body {
     justify-content: center;
     align-items: center;
     gap: 12px;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     color: var(--text-secondary);
+    flex-wrap: nowrap;
+    /* Force horizontal */
+}
+
+@media (max-width: 480px) {
+    .footer-content {
+        font-size: 0.65rem;
+        gap: 6px;
+    }
+
+    .footer-divider {
+        display: inline;
+        /* Ensure visible */
+    }
 }
 
 .footer-divider {
     opacity: 0.3;
 }
+
+/* ========================================
+   Drag Ghost & Alignment Fix
+   ======================================== */
+.drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 1000;
+    will-change: transform;
+}
+
+.ghost-grid {
+    display: grid;
+    pointer-events: none;
+}
+
+.ghost-cell {
+    border-radius: 4px;
+    opacity: 0;
+    /* Hidden by default */
+    background: none;
+}
+
+.ghost-cell.active {
+    opacity: 0.8;
+    /* Only show active ones */
+}
+
 
 .footer-creator strong {
     color: var(--text-primary);
@@ -1313,12 +1358,40 @@ body {
     }
 
     .footer-content {
-        flex-direction: column;
-        gap: 8px;
+        gap: 6px;
         text-align: center;
+        flex-direction: row;
+        /* Force horizontal */
+        font-size: 0.65rem;
     }
 
     .footer-divider {
-        display: none;
+        display: inline;
     }
+}
+
+/* ========================================
+   Animations
+   ======================================== */
+@keyframes blockAppear {
+    0% {
+        opacity: 0;
+        transform: translateY(20px) scale(0.8);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.block-preview {
+    /* Existing styles assumed, ensuring animation support */
+    animation-fill-mode: both;
+}
+
+.block-preview.dragging {
+    opacity: 0 !important;
+    animation: none !important;
+    /* Stop animation overriding opacity */
 }

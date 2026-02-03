@@ -293,7 +293,25 @@ const BLOCK_SHAPES = [
     // Note: 3x3 diagonal effectively has 2 main directions, but user asked for "all variations"
     // For a centered 3x3 diagonal, rotation 180 is same as 0. 90 is same as 270.
     { cells: [[0, 0], [1, 1], [2, 2]], gradient: 1 }, // Base \
-    { cells: [[0, 2], [1, 1], [2, 0]], gradient: 2 }  // Rot /
+    { cells: [[0, 2], [1, 1], [2, 0]], gradient: 2 },  // Rot /
+
+    // New 3x2 L Variations
+    // Note: User reported 111/100 acted like 3x3.
+    // Ensure coordinates are tight: rows 0-1, cols 0-2.
+    { cells: [[0, 0], [0, 1], [0, 2], [1, 0]], gradient: 3 }, // Long top L (3x2)
+    { cells: [[0, 0], [0, 1], [0, 2], [1, 2]], gradient: 4 }, // Long top J (3x2)
+    { cells: [[0, 0], [1, 0], [1, 1], [1, 2]], gradient: 5 }, // Long bottom L (3x2)
+    { cells: [[0, 2], [1, 0], [1, 1], [1, 2]], gradient: 6 }, // Long bottom J (3x2)
+    { cells: [[0, 0], [1, 0], [2, 0], [0, 1]], gradient: 7 }, // Tall left L (2x3)
+    { cells: [[0, 0], [1, 0], [2, 0], [2, 1]], gradient: 1 }, // Tall left J (2x3)
+    { cells: [[0, 1], [1, 1], [2, 1], [0, 0]], gradient: 2 }, // Tall right L (2x3)
+    { cells: [[0, 1], [1, 1], [2, 1], [2, 0]], gradient: 3 }, // Tall right J (2x3)
+
+    // New 3x2 T Variations
+    { cells: [[0, 0], [0, 1], [0, 2], [1, 1]], gradient: 4 }, // T down
+    { cells: [[1, 0], [1, 1], [1, 2], [0, 1]], gradient: 5 }, // T up
+    { cells: [[0, 0], [1, 0], [2, 0], [1, 1]], gradient: 6 }, // T right
+    { cells: [[0, 1], [1, 1], [2, 1], [1, 0]], gradient: 7 }  // T left
 ];
 
 // ========================================
@@ -447,6 +465,15 @@ function createPowerupGhost(type, x, y) {
                 <div class="ghost-cell fill-cell active" style="width: ${size}px; height: ${size}px; background: var(--gradient-${dragState.currentGradient || 4})"></div>
             </div>
         `;
+    }
+
+    // Powerups are usually 1x1 or 5x5 centered
+    if (type === 'bomb') {
+        dragState.dragOffsetRow = 2; // Center of 5x5
+        dragState.dragOffsetCol = 2;
+    } else {
+        dragState.dragOffsetRow = 0; // 1x1
+        dragState.dragOffsetCol = 0;
     }
 
     document.body.appendChild(dragState.ghostElement);
@@ -704,6 +731,7 @@ function generateNewBlocks() {
                     const [dr, dc] = block.cells[i];
                     const tr = r + dr;
                     const tc = c + dc;
+                    // solveSequence uses the LOCAL 'grid' argument (simulation), NOT gameState.grid
                     if (tr < 0 || tr >= GRID_SIZE || tc < 0 || tc >= GRID_SIZE || grid[tr][tc] !== null) {
                         fits = false;
                         break;
@@ -726,12 +754,21 @@ function generateNewBlocks() {
         return false;
     };
 
-    for (let attempt = 0; attempt < 50; attempt++) {
-        // Pick 3 random
+    for (let attempt = 0; attempt < 100; attempt++) {
+        // Pick 3 random blocks with better variety logic
         const candidateSet = [];
+
+        // Simple bag logic: Try to ensure at least one complex shape if possible, or just pure random
+        // but avoid picking the exact same index 3 times in a row purely by chance.
+        // For Block Blast style: pure random is surprisingly effective, but let's ensure mixed colors.
+
         for (let i = 0; i < 3; i++) {
             const randomShape = BLOCK_SHAPES[Math.floor(Math.random() * BLOCK_SHAPES.length)];
-            candidateSet.push({ ...randomShape }); // Clone
+            // Clone and assign a random gradient color (1-7) to ensure visual variety
+            candidateSet.push({
+                ...randomShape,
+                gradient: Math.floor(Math.random() * 7) + 1
+            });
         }
 
         // Check if there is ANY permutation of these 3 that fits
@@ -763,7 +800,8 @@ function generateNewBlocks() {
     gameState.availableBlocks = bestSet.map((block, i) => ({
         ...block,
         id: Date.now() + i,
-        used: false
+        used: false,
+        isNew: true // Mark as new for animation
     }));
 
     // Force re-render of all slots
@@ -781,6 +819,24 @@ function renderAvailableBlocks() {
         const blockPreview = document.createElement('div');
         blockPreview.className = 'block-preview';
         blockPreview.dataset.blockIndex = index;
+
+        blockPreview.dataset.blockIndex = index;
+
+        // Staggered Animation: Only if the block is marked as "new"
+        if (block.isNew) {
+            blockPreview.style.animation = `blockAppear 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards`;
+            blockPreview.style.animationDelay = `${index * 0.15}s`;
+            blockPreview.style.opacity = '0';
+
+            // Remove the flag after render so it doesn't re-animate
+            // We use a small timeout to clear it from the state object safely
+            setTimeout(() => { block.isNew = false; }, 1000);
+        } else {
+            // Ensure visibility if not animating
+            blockPreview.style.opacity = '1';
+        }
+
+        // Always render structure to keep internal size, but hide if used
 
         // Always render structure to keep internal size, but hide if used
         const { rows, cols } = getBlockDimensions(block.cells);
@@ -828,7 +884,8 @@ function startBlockDrag(e, index, block) {
     // Find and hide source element
     dragState.sourceElement = e.target.closest('.block-preview');
     if (dragState.sourceElement) {
-        dragState.sourceElement.style.opacity = '0';
+        // Use class instead of inline style to override animation
+        dragState.sourceElement.classList.add('dragging');
     }
 
     dragState.isDragging = true;
@@ -974,17 +1031,24 @@ function handlePointerUp(e) {
     if (cellCoords) {
         const { row, col } = cellCoords;
 
+        // Alignment Fix: Subtract offset so the block is placed centered on cursor
+        // visually and logically.
         let targetRow = row;
         let targetCol = col;
 
         if (dragState.blockIndex !== null) {
             targetRow -= dragState.dragOffsetRow;
             targetCol -= dragState.dragOffsetCol;
+        }
+
+        // Bomb/Fill rely on center point usually, so we keep row/col as is for them
+        // unless they also need offset. Bomb logic usually takes "centerRow/Col".
+
+        if (dragState.blockIndex !== null) {
+            // placeBlock handles bounds checking internally
             placeBlock(targetRow, targetCol, dragState.blockIndex);
-        } else if (dragState.powerupType === 'bomb') {
-            executeBomb(row, col);
-        } else if (dragState.powerupType === 'fill') {
-            executeFill(row, col);
+        } else if (dragState.powerupType) {
+            handlePowerupDrop(row, col);
         }
     }
 
@@ -994,6 +1058,7 @@ function handlePointerUp(e) {
 function endDrag() {
     // Restore opacity of source element
     if (dragState.sourceElement) {
+        dragState.sourceElement.classList.remove('dragging');
         dragState.sourceElement.style.opacity = '1';
         dragState.sourceElement = null;
     }
@@ -1018,37 +1083,26 @@ function endDrag() {
 function updateGhostPosition(x, y) {
     if (!dragState.ghostElement) return;
 
-    // Use cached dimensions if available to avoid getBoundingClientRect layout thrashing
-    const width = dragState.ghostWidth || 0;
-    const height = dragState.ghostHeight || 0;
+    const size = dragState.cellSize || 40;
 
-    // Use translate3d for GPU acceleration (smoother than left/top)
-    const targetX = x - width / 2;
-    const targetY = y - height / 2;
+    // Alignment Fix:
+    // The previous logic used (offset + 0.5) * size, which aligns the ghost's internal "center cell" 
+    // to the pointer.
+    // Use the exact same offset logic as the placement highlight.
+    // The placement logic assumes the pointer is at the top-left of the target cell.
+    // But the visual ghost has a width/height.
+
+    // We want the cell under the pointer (in the ghost grid) to be directly under the pointer.
+    // dragState.dragOffsetCol is the column index of the cell we grabbed.
+
+    // Position of the ghost's top-left corner relative to the pointer:
+    const offsetX = (dragState.dragOffsetCol * size) + (size / 2);
+    const offsetY = (dragState.dragOffsetRow * size) + (size / 2);
+
+    const targetX = x - offsetX;
+    const targetY = y - offsetY;
 
     dragState.ghostElement.style.transform = `translate3d(${targetX}px, ${targetY}px, 0)`;
-
-    // Spawn trail particles if moving
-    if (!dragState.lastTrailSpawn || Date.now() - dragState.lastTrailSpawn > 10) {
-        spawnTrailParticle(x, y, dragState.currentGradient);
-        dragState.lastTrailSpawn = Date.now();
-    }
-}
-
-function spawnTrailParticle(x, y, gradient) {
-    const trail = document.createElement('div');
-    trail.className = 'drag-trail';
-
-    if (gradient) {
-        trail.style.background = `var(--gradient-${gradient})`;
-        trail.style.boxShadow = `0 0 10px white, 0 0 20px var(--gradient-${gradient})`;
-    }
-
-    trail.style.left = x + 'px';
-    trail.style.top = y + 'px';
-
-    document.body.appendChild(trail);
-    setTimeout(() => trail.remove(), 500);
 }
 
 function getCellCoordsAt(x, y) {
@@ -1092,6 +1146,11 @@ function highlightPlacement(row, col) {
     if (dragState.blockIndex !== null) {
         const block = gameState.availableBlocks[dragState.blockIndex];
         if (!block || block.used) return;
+
+        // Alignment Fix: 
+        // handlePointerMove already subtracts offset before passing row/col here.
+        // So 'row' and 'col' are ALREADY the top-left origin.
+        // We do NOT subtract again.
 
         const isValid = canPlaceBlock(row, col, block);
 
@@ -1379,12 +1438,15 @@ function clearLines(lines, sourceRow = 4, sourceCol = 4) {
         if (line.type === 'row') {
             const row = line.index;
             for (let col = 0; col < GRID_SIZE; col++) {
+                // Clear logic IMMEDIATELY to prevent double-counting
+                gameState.grid[row][col] = null;
+
                 // Calculate delay based on distance from sourceCol
                 const distance = Math.abs(col - sourceCol);
                 const delay = distance * 40;
 
                 setTimeout(() => {
-                    // Logic is already cleared, just update visuals and effects
+                    // Update visuals and effects
                     createParticles(row, col);
                     const cell = getCellElement(row, col);
                     if (cell) {
@@ -1396,12 +1458,15 @@ function clearLines(lines, sourceRow = 4, sourceCol = 4) {
         } else {
             const col = line.index;
             for (let row = 0; row < GRID_SIZE; row++) {
+                // Clear logic IMMEDIATELY to prevent double-counting
+                gameState.grid[row][col] = null;
+
                 // Calculate delay based on distance from sourceRow
                 const distance = Math.abs(row - sourceRow);
                 const delay = distance * 40;
 
                 setTimeout(() => {
-                    // Logic is already cleared, just update visuals and effects
+                    // Update visuals and effects
                     createParticles(row, col);
                     const cell = getCellElement(row, col);
                     if (cell) {
