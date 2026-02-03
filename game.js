@@ -421,7 +421,6 @@ function createPowerupGhost(type, x, y) {
     dragState.ghostElement.className = 'drag-ghost powerup-ghost';
 
     if (type === 'bomb') {
-        // 5x5 diamond pattern
         const pattern = [
             [0, 0, 1, 0, 0],
             [0, 1, 1, 1, 0],
@@ -434,7 +433,6 @@ function createPowerupGhost(type, x, y) {
         let gridHtml = `<div class="ghost-grid bomb-grid" style="grid-template-columns: repeat(5, ${size}px); grid-template-rows: repeat(5, ${size}px);">`;
         for (let r = 0; r < 5; r++) {
             for (let c = 0; c < 5; c++) {
-                // Add active class if part of pattern
                 const activeClass = pattern[r][c] ? 'bomb-cell active' : 'bomb-cell-empty';
                 gridHtml += `<div class="ghost-cell ${activeClass}" style="width: ${size}px; height: ${size}px;"></div>`;
             }
@@ -444,8 +442,6 @@ function createPowerupGhost(type, x, y) {
 
     } else if (type === 'fill') {
         const size = dragState.cellSize || 40;
-
-        // Single cell for fill
         dragState.ghostElement.innerHTML = `
             <div class="ghost-grid" style="grid-template-columns: ${size}px; grid-template-rows: ${size}px;">
                 <div class="ghost-cell fill-cell active" style="width: ${size}px; height: ${size}px; background: var(--gradient-${dragState.currentGradient || 4})"></div>
@@ -454,6 +450,12 @@ function createPowerupGhost(type, x, y) {
     }
 
     document.body.appendChild(dragState.ghostElement);
+
+    // Cache size immediately after adding to DOM, then switch to transform movement
+    const rect = dragState.ghostElement.getBoundingClientRect();
+    dragState.ghostWidth = rect.width;
+    dragState.ghostHeight = rect.height;
+
     updateGhostPosition(x, y);
 }
 
@@ -888,11 +890,7 @@ function createBlockGhost(block, x, y) {
     updateGhostPosition(x, y);
 }
 
-function getBlockDimensions(cells) {
-    const rows = Math.max(...cells.map(([r]) => r)) + 1;
-    const cols = Math.max(...cells.map(([, c]) => c)) + 1;
-    return { rows, cols };
-}
+
 
 // ========================================
 // Floating Score
@@ -1020,15 +1018,15 @@ function endDrag() {
 function updateGhostPosition(x, y) {
     if (!dragState.ghostElement) return;
 
-    const ghost = dragState.ghostElement;
-    const rect = ghost.getBoundingClientRect();
+    // Use cached dimensions if available to avoid getBoundingClientRect layout thrashing
+    const width = dragState.ghostWidth || 0;
+    const height = dragState.ghostHeight || 0;
 
-    // Center the ghost on pointer
-    const targetX = x - rect.width / 2;
-    const targetY = y - rect.height / 2;
+    // Use translate3d for GPU acceleration (smoother than left/top)
+    const targetX = x - width / 2;
+    const targetY = y - height / 2;
 
-    ghost.style.left = targetX + 'px';
-    ghost.style.top = targetY + 'px';
+    dragState.ghostElement.style.transform = `translate3d(${targetX}px, ${targetY}px, 0)`;
 
     // Spawn trail particles if moving
     if (!dragState.lastTrailSpawn || Date.now() - dragState.lastTrailSpawn > 10) {
@@ -1386,14 +1384,12 @@ function clearLines(lines, sourceRow = 4, sourceCol = 4) {
                 const delay = distance * 40;
 
                 setTimeout(() => {
-                    if (gameState.grid[row][col] !== null) {
-                        createParticles(row, col);
-                        gameState.grid[row][col] = null;
-                        const cell = getCellElement(row, col);
-                        if (cell) {
-                            cell.classList.remove('filled');
-                            cell.style.background = '';
-                        }
+                    // Logic is already cleared, just update visuals and effects
+                    createParticles(row, col);
+                    const cell = getCellElement(row, col);
+                    if (cell) {
+                        cell.classList.remove('filled');
+                        cell.style.background = '';
                     }
                 }, delay);
             }
@@ -1405,14 +1401,12 @@ function clearLines(lines, sourceRow = 4, sourceCol = 4) {
                 const delay = distance * 40;
 
                 setTimeout(() => {
-                    if (gameState.grid[row][col] !== null) {
-                        createParticles(row, col);
-                        gameState.grid[row][col] = null;
-                        const cell = getCellElement(row, col);
-                        if (cell) {
-                            cell.classList.remove('filled');
-                            cell.style.background = '';
-                        }
+                    // Logic is already cleared, just update visuals and effects
+                    createParticles(row, col);
+                    const cell = getCellElement(row, col);
+                    if (cell) {
+                        cell.classList.remove('filled');
+                        cell.style.background = '';
                     }
                 }, delay);
             }
