@@ -1316,10 +1316,10 @@ function placeBlock(row, col, blockIndex) {
 
     // Show points for placement at the center of the block
     const lastCell = block.cells[block.cells.length - 1];
-    showFloatingScore(block.cells.length * 3, row + lastCell[0], col + lastCell[1]);
+    showFloatingScore(block.cells.length * 10, row + lastCell[0], col + lastCell[1]);
 
     sounds.place(440 + block.cells.length * 20);
-    gameState.score += block.cells.length * 3;
+    gameState.score += block.cells.length * 10;
     block.used = true;
 
     const clearedLines = checkAndClearLines(row, col);
@@ -1568,8 +1568,8 @@ function createParticles(row, col) {
     const rect = cell.getBoundingClientRect();
     const containerRect = elements.particleContainer.getBoundingClientRect();
 
-    // Performance: Reduced from 8 to 5 particles for low-end devices
-    for (let i = 0; i < 5; i++) {
+    // Performance: Reduced to 3 particles for smoother gameplay on all devices
+    for (let i = 0; i < 3; i++) {
         const particle = document.createElement('div');
         particle.className = 'particle';
 
