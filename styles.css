@@ -188,20 +188,25 @@ body {
     letter-spacing: -0.02em;
     margin-bottom: 0;
     text-shadow: 0 0 30px rgba(139, 233, 253, 0.5);
+    background: linear-gradient(135deg, #22d3ee 0%, #3b82f6 50%, #a855f7 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
 .title-glass {
-    color: #ffffff;
-    -webkit-text-fill-color: initial;
+    color: inherit;
+    -webkit-text-fill-color: inherit;
     background: none;
-    text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+    text-shadow: none;
 }
 
 .title-accent {
-    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    background: none;
+    -webkit-background-clip: border-box;
+    -webkit-text-fill-color: inherit;
+    background-clip: border-box;
+    color: inherit;
 }
 
 .game-subtitle {
@@ -427,10 +432,14 @@ body {
     /* Prevent scrolling while dragging */
     user-select: none;
     -webkit-user-select: none;
+    /* Block Blast style: smaller blocks in preview */
+    transform: scale(0.6);
+    transform-origin: center;
 }
 
 .block-preview:hover {
-    transform: translateY(-4px) scale(1.05);
+    /* Slightly larger on hover for feedback */
+    transform: translateY(-4px) scale(0.65);
     background: transparent;
 }
 
@@ -911,8 +920,21 @@ body {
 .powerups-container {
     display: flex;
     justify-content: center;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 12px;
+    flex-wrap: nowrap;
+    /* Force single row */
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.powerup-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    /* Distribute space equally */
 }
 
 .powerup-btn {
@@ -921,15 +943,18 @@ body {
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
     border-radius: 12px;
-    padding: 12px 16px;
+    padding: 0;
+    /* Removing padding to use fixed sizing */
     cursor: pointer;
     transition: all var(--transition-smooth);
     box-shadow: 0 4px 16px var(--glass-shadow);
     display: flex;
     align-items: center;
     justify-content: center;
-    min-width: 70px;
-    min-height: 60px;
+    width: 64px;
+    /* Fixed square size */
+    height: 64px;
+    /* Fixed square size */
     position: relative;
     font-family: inherit;
     touch-action: none;
@@ -960,8 +985,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.2rem;
-    height: 2.2rem;
+    width: 2rem;
+    height: 2rem;
     color: var(--text-accent);
 }
 
@@ -973,15 +998,18 @@ body {
 
 
 #fillPowerup .powerup-icon {
-    width: 2.8rem;
-    height: 2.8rem;
+    width: 2.2rem;
+    /* Reduced from 2.8rem to match others better */
+    height: 2.2rem;
 }
 
 .powerup-label {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
+    /* Slightly smaller to fit */
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    font-weight: 600;
 }
 
 .powerup-count {
@@ -1009,19 +1037,21 @@ body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%) scale(0);
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    /* Glassmorphism: translucent white with subtle blur */
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 2px solid rgba(34, 211, 238, 0.3);
     padding: var(--spacing-lg) var(--spacing-xl);
     border-radius: 30px;
-    box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3), inset 0 0 20px rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 40px rgba(34, 211, 238, 0.6),
+        inset 0 0 20px rgba(255, 255, 255, 0.05);
     z-index: 999;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: var(--spacing-xs);
-    animation: praiseAnimation 1.5s ease-out forwards;
+    animation: comboSimplePop 1s ease-out forwards;
     pointer-events: none;
 }
 
@@ -1030,22 +1060,19 @@ body {
 }
 
 .combo-text {
-    font-size: 1rem;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.6);
-    letter-spacing: 0.2em;
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #22d3ee;
+    letter-spacing: 0.3em;
     text-transform: uppercase;
+    text-shadow: 0 0 20px rgba(34, 211, 238, 0.8);
 }
 
 .combo-value {
-    font-size: 3.5rem;
-    font-weight: 800;
-    /* Cyan / Blue Gradient for Combo */
-    background: linear-gradient(135deg, #22d3ee 0%, #3b82f6 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 15px rgba(34, 211, 238, 0.4));
+    font-size: 3.8rem;
+    font-weight: 900;
+    color: #22d3ee;
+    text-shadow: 0 0 30px rgba(34, 211, 238, 0.8);
     line-height: 1;
 }
 
@@ -1091,24 +1118,23 @@ body {
     top: 30%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(15px);
-    -webkit-backdrop-filter: blur(15px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: var(--spacing-md) var(--spacing-xl);
+    /* Glassmorphism: translucent white with subtle blur */
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 2px solid rgba(232, 121, 249, 0.3);
+    padding: var(--spacing-md) calc(var(--spacing-xl) * 1.5);
     border-radius: 50px;
-    font-size: 1.8rem;
-    font-weight: 800;
+    font-size: 2.2rem;
+    font-weight: 900;
     text-transform: uppercase;
-    letter-spacing: 0.15em;
-    /* Purple / Pink Gradient for Praise */
-    background: linear-gradient(135deg, #e879f9 0%, #d946ef 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 20px rgba(232, 121, 249, 0.4));
+    letter-spacing: 0.2em;
+    color: #e879f9;
+    text-shadow: 0 0 30px rgba(232, 121, 249, 0.8);
+    box-shadow: 0 0 50px rgba(232, 121, 249, 0.6),
+        inset 0 0 20px rgba(255, 255, 255, 0.05);
     z-index: 999;
-    animation: praiseAnimation 1.5s ease-out forwards;
+    animation: praiseSimplePop 1s ease-out forwards;
     pointer-events: none;
     white-space: nowrap;
 }
@@ -1117,23 +1143,63 @@ body {
     display: none;
 }
 
-@keyframes praiseAnimation {
+/* Ultra-Light Animations */
+@keyframes comboSimplePop {
     0% {
-        transform: translate(-50%, -50%) scale(0);
+        transform: translate(-50%, -50%) scale(0) rotate(-8deg);
         opacity: 0;
     }
 
     20% {
-        transform: translate(-50%, -50%) scale(1.2);
+        transform: translate(-50%, -50%) scale(1.2) rotate(3deg);
         opacity: 1;
     }
 
-    80% {
+    35% {
+        transform: translate(-50%, -50%) scale(0.95) rotate(-2deg);
+    }
+
+    50% {
+        transform: translate(-50%, -50%) scale(1.05) rotate(1deg);
+    }
+
+    70% {
+        transform: translate(-50%, -50%) scale(1) rotate(0deg);
         opacity: 1;
     }
 
     100% {
-        transform: translate(-50%, -80%) scale(0.8);
+        transform: translate(-50%, -50%) scale(1) rotate(0deg);
+        opacity: 0;
+    }
+}
+
+@keyframes praiseSimplePop {
+    0% {
+        transform: translate(-50%, -50%) scale(0) rotate(-12deg);
+        opacity: 0;
+    }
+
+    25% {
+        transform: translate(-50%, -50%) scale(1.25) rotate(5deg);
+        opacity: 1;
+    }
+
+    40% {
+        transform: translate(-50%, -50%) scale(0.98) rotate(-3deg);
+    }
+
+    55% {
+        transform: translate(-50%, -50%) scale(1.08) rotate(2deg);
+    }
+
+    70% {
+        transform: translate(-50%, -50%) scale(1) rotate(0deg);
+        opacity: 1;
+    }
+
+    100% {
+        transform: translate(-50%, -60%) scale(0.95) rotate(0deg);
         opacity: 0;
     }
 }
@@ -1308,6 +1374,9 @@ body {
     pointer-events: none;
     z-index: 1000;
     will-change: transform;
+    /* Block Blast style: full scale when dragging */
+    opacity: 0.9;
+    transition: opacity 0.15s ease-out;
 }
 
 .ghost-grid {
@@ -1325,6 +1394,27 @@ body {
 .ghost-cell.active {
     opacity: 0.8;
     /* Only show active ones */
+}
+
+/* Bomb Ghost Specifics */
+.bomb-cell.active {
+    background: radial-gradient(circle at 30% 30%, #fca5a5, #ef4444);
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    opacity: 1 !important;
+    /* Force high visibility */
+}
+
+.bomb-cell-empty {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.fill-cell.active {
+    opacity: 1 !important;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.4);
 }
 
 

@@ -20,10 +20,13 @@ const gameState = {
     undoHistory: [],
     comboCount: 0,
     lastClearTime: 0,
-    scoredInCurrentCycle: false // Track if any block in the current 3-block cycle cleared a line
+    scoredInCurrentCycle: false, // Track if any block in the current 3-block cycle cleared a line
+    cellCache: [] // Performance: Cache cell elements
 };
 
 // Drag state
+const VERTICAL_CURSOR_OFFSET = 75; // Block Blast style: vertical gap between cursor and block
+
 let dragState = {
     isDragging: false,
     blockIndex: null,
@@ -35,7 +38,10 @@ let dragState = {
     currentGradient: null, // Store the color for the trail
     lastHighlightedCell: null,
     gridRect: null,
-    cellSize: 0
+    cellSize: 0,
+    rafScheduled: false, // Performance: Prevent multiple RAF calls
+    lastPointerX: 0,
+    lastPointerY: 0
 };
 
 // ========================================
@@ -253,6 +259,29 @@ const sounds = {
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
         osc.start(audioCtx.currentTime);
         osc.stop(audioCtx.currentTime + 0.05);
+    },
+    bonus: () => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        if (sounds.buffer.cleanSlate) {
+            const source = audioCtx.createBufferSource();
+            source.buffer = sounds.buffer.cleanSlate;
+            source.connect(audioCtx.destination);
+            source.start(0);
+        } else {
+            // Fallback chime
+            const t = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.setValueAtTime(523.25, t); // C5
+            osc.frequency.linearRampToValueAtTime(1046.50, t + 0.3); // C6
+            gain.gain.setValueAtTime(0.2, t);
+            gain.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+            osc.start(t);
+            osc.stop(t + 0.3);
+        }
     }
 };
 
@@ -447,8 +476,12 @@ function createPowerupGhost(type, x, y) {
             [0, 0, 1, 0, 0]
         ];
 
-        const size = dragState.cellSize || 40;
-        let gridHtml = `<div class="ghost-grid bomb-grid" style="grid-template-columns: repeat(5, ${size}px); grid-template-rows: repeat(5, ${size}px);">`;
+        // Alignment Fix: Subtract gap from size to match real grid cells
+        const fullSize = dragState.cellSize || 40;
+        const gap = 3;
+        const size = fullSize - gap; // Actual cell visual size
+
+        let gridHtml = `<div class="ghost-grid bomb-grid" style="grid-template-columns: repeat(5, ${size}px); grid-template-rows: repeat(5, ${size}px); gap: ${gap}px;">`;
         for (let r = 0; r < 5; r++) {
             for (let c = 0; c < 5; c++) {
                 const activeClass = pattern[r][c] ? 'bomb-cell active' : 'bomb-cell-empty';
@@ -459,7 +492,10 @@ function createPowerupGhost(type, x, y) {
         dragState.ghostElement.innerHTML = gridHtml;
 
     } else if (type === 'fill') {
-        const size = dragState.cellSize || 40;
+        const fullSize = dragState.cellSize || 40;
+        const gap = 3;
+        const size = fullSize - gap;
+
         dragState.ghostElement.innerHTML = `
             <div class="ghost-grid" style="grid-template-columns: ${size}px; grid-template-rows: ${size}px;">
                 <div class="ghost-cell fill-cell active" style="width: ${size}px; height: ${size}px; background: var(--gradient-${dragState.currentGradient || 4})"></div>
@@ -504,6 +540,7 @@ function executeUndo() {
     renderAvailableBlocks();
     updateUI();
     updatePowerupUI();
+    saveGameState();
 }
 
 function updatePowerupUI() {
@@ -523,6 +560,9 @@ function updatePowerupUI() {
 // ========================================
 function createGrid() {
     elements.gameGrid.innerHTML = '';
+    // Performance: Initialize cell cache
+    gameState.cellCache = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+
     for (let row = 0; row < GRID_SIZE; row++) {
         for (let col = 0; col < GRID_SIZE; col++) {
             const cell = document.createElement('div');
@@ -530,14 +570,17 @@ function createGrid() {
             cell.dataset.row = row;
             cell.dataset.col = col;
             elements.gameGrid.appendChild(cell);
+            // Cache the cell element
+            gameState.cellCache[row][col] = cell;
         }
     }
 }
 
 function renderGrid() {
+    // Performance: Use cached cells instead of querying DOM
     for (let row = 0; row < GRID_SIZE; row++) {
         for (let col = 0; col < GRID_SIZE; col++) {
-            const cell = getCellElement(row, col);
+            const cell = gameState.cellCache[row][col];
             if (gameState.grid[row][col] !== null) {
                 cell.classList.add('filled');
                 cell.style.background = `var(--gradient-${gameState.grid[row][col]})`;
@@ -554,6 +597,13 @@ function renderGrid() {
 // ========================================
 // Execute Power-ups
 // ========================================
+function handlePowerupDrop(row, col) {
+    if (dragState.powerupType === 'bomb') {
+        executeBomb(row, col);
+    } else if (dragState.powerupType === 'fill') {
+        executeFill(row, col);
+    }
+}
 function executeBomb(centerRow, centerCol) {
     if (gameState.powerups.bomb <= 0) return;
 
@@ -613,6 +663,7 @@ function executeBomb(centerRow, centerCol) {
         // Suppress sound for lines cleared by bomb
         checkAndClearLines(centerRow, centerCol, true);
         checkGameOver();
+        saveGameState();
     }, 400);
 }
 
@@ -647,17 +698,40 @@ function executeFill(row, col) {
 
     updateUI();
     updatePowerupUI();
+    saveGameState();
 }
 
 function executeRoll() {
     if (gameState.powerups.roll <= 0) return;
 
     saveUndoState();
-    generateNewBlocks();
+
+    // Identify indices of blocks to replace (unused ones)
+    const indicesToReplace = [];
+    gameState.availableBlocks.forEach((block, index) => {
+        if (!block.used) indicesToReplace.push(index);
+    });
+
+    if (indicesToReplace.length > 0) {
+        // Generate a solvable set for these specific slots
+        const newBlocks = getSolvableBlockSet(indicesToReplace.length);
+
+        indicesToReplace.forEach((replaceIndex, i) => {
+            const newBlock = newBlocks[i];
+            newBlock.used = false;
+            newBlock.isNew = true;
+            gameState.availableBlocks[replaceIndex] = newBlock;
+        });
+    }
+
     gameState.powerups.roll--;
     sounds.powerup();
 
+    renderAvailableBlocks();
+    checkGameOver();
+
     updatePowerupUI();
+    saveGameState();
 }
 
 function saveUndoState() {
@@ -692,30 +766,13 @@ function getBlockDimensions(cells) {
 // ========================================
 // Generate Random Blocks (Smart Algorithm)
 // ========================================
-function generateNewBlocks() {
-    gameState.availableBlocks = [];
 
-    // Try to find a set of 3 blocks where ALL 3 can fit into the current grid
-    // We attempt this up to 20 times. If we fail, we just fallback to the last random set.
+// Helper to find a set of blocks that fits the current grid
+function getSolvableBlockSet(count) {
+    if (count <= 0) return [];
+
     let bestSet = [];
     let validSetFound = false;
-
-    // Helper to simulate placement on a cloned grid
-    const canFitOnGrid = (grid, block) => {
-        const { rows, cols } = getBlockDimensions(block.cells);
-        for (let r = 0; r < GRID_SIZE; r++) {
-            for (let c = 0; c < GRID_SIZE; c++) {
-                // Inline check logic for speed
-                const fits = block.cells.every(([dr, dc]) => {
-                    const tr = r + dr;
-                    const tc = c + dc;
-                    return tr >= 0 && tr < GRID_SIZE && tc >= 0 && tc < GRID_SIZE && grid[tr][tc] === null;
-                });
-                if (fits) return { r, c };
-            }
-        }
-        return null; // No spot found
-    };
 
     // Recursive solver to check if a sequence of blocks fits
     const solveSequence = (grid, blocks, index) => {
@@ -725,13 +782,12 @@ function generateNewBlocks() {
         // Try to place this block anywhere
         for (let r = 0; r < GRID_SIZE; r++) {
             for (let c = 0; c < GRID_SIZE; c++) {
-                // Check fitting
+                // Check fitting (inline for performance)
                 let fits = true;
                 for (let i = 0; i < block.cells.length; i++) {
                     const [dr, dc] = block.cells[i];
                     const tr = r + dr;
                     const tc = c + dc;
-                    // solveSequence uses the LOCAL 'grid' argument (simulation), NOT gameState.grid
                     if (tr < 0 || tr >= GRID_SIZE || tc < 0 || tc >= GRID_SIZE || grid[tr][tc] !== null) {
                         fits = false;
                         break;
@@ -741,8 +797,6 @@ function generateNewBlocks() {
                 if (fits) {
                     // Place temp
                     block.cells.forEach(([dr, dc]) => grid[r + dr][c + dc] = 99);
-                    // Clear lines simulation omitted for simplicity in generation check 
-                    // (strict fitting is harder, so if it fits without clearing it's definitely safe)
 
                     if (solveSequence(grid, blocks, index + 1)) return true;
 
@@ -754,26 +808,15 @@ function generateNewBlocks() {
         return false;
     };
 
-    for (let attempt = 0; attempt < 100; attempt++) {
-        // Pick 3 random blocks with better variety logic
+    for (let attempt = 0; attempt < 50; attempt++) {
         const candidateSet = [];
-
-        // Simple bag logic: Try to ensure at least one complex shape if possible, or just pure random
-        // but avoid picking the exact same index 3 times in a row purely by chance.
-        // For Block Blast style: pure random is surprisingly effective, but let's ensure mixed colors.
-
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < count; i++) {
             const randomShape = BLOCK_SHAPES[Math.floor(Math.random() * BLOCK_SHAPES.length)];
-            // Clone and assign a random gradient color (1-7) to ensure visual variety
             candidateSet.push({
                 ...randomShape,
                 gradient: Math.floor(Math.random() * 7) + 1
             });
         }
-
-        // Check if there is ANY permutation of these 3 that fits
-        // Actually, checking *one* permutation is usually enough for "at least one way"
-        // But for "all 3 blocks can be placed", we need to ensure they can exist together.
 
         // Deep clone grid for simulation
         const simGrid = gameState.grid.map(row => [...row]);
@@ -783,28 +826,32 @@ function generateNewBlocks() {
             break;
         }
 
-        if (attempt === 0) bestSet = candidateSet; // Keep first guess as fallback
+        if (attempt === 0) bestSet = candidateSet; // Keep first guess
     }
 
-    // MERCY FALLBACK: If no valid set found after 50 attempts, give 1x1 mercy blocks
+    // MERCY FALLBACK: If no valid set found, give 1x1 mercy blocks
     if (!validSetFound) {
         console.log("Mercy fallback triggered: Generating 1x1 blocks.");
-        bestSet = [
-            { ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 },
-            { ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 },
-            { ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 }
-        ];
+        bestSet = [];
+        for (let i = 0; i < count; i++) {
+            bestSet.push({ ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 });
+        }
     }
 
-    // Assign IDs to the chosen set
-    gameState.availableBlocks = bestSet.map((block, i) => ({
-        ...block,
-        id: Date.now() + i,
-        used: false,
-        isNew: true // Mark as new for animation
-    }));
+    return bestSet;
+}
 
-    // Force re-render of all slots
+function generateNewBlocks() {
+    gameState.availableBlocks = [];
+
+    // Generate 3 solvable blocks
+    const newBlocks = getSolvableBlockSet(3);
+
+    newBlocks.forEach(block => {
+        block.isNew = true;
+        gameState.availableBlocks.push(block);
+    });
+
     renderAvailableBlocks();
     checkGameOver();
 }
@@ -990,44 +1037,63 @@ function setupGlobalDragListeners() {
 function handlePointerMove(e) {
     if (!dragState.isDragging) return;
 
-    updateGhostPosition(e.clientX, e.clientY);
+    // Store latest position for RAF callback
+    dragState.lastPointerX = e.clientX;
+    dragState.lastPointerY = e.clientY;
 
-    // Find cell under pointer using optimized math
-    const cellCoords = getCellCoordsAt(e.clientX, e.clientY);
+    // Performance: Use requestAnimationFrame for smooth updates
+    if (!dragState.rafScheduled) {
+        dragState.rafScheduled = true;
+        requestAnimationFrame(() => {
+            dragState.rafScheduled = false;
 
-    if (cellCoords) {
-        const { row, col } = cellCoords;
+            const x = dragState.lastPointerX;
+            const y = dragState.lastPointerY;
 
-        // Sound feedback on new cell
-        const cellKey = `${row}-${col}`;
-        if (dragState.lastHighlightedCell !== cellKey) {
-            sounds.tick();
-            dragState.lastHighlightedCell = cellKey;
-        }
+            updateGhostPosition(x, y);
 
-        // Calculate target origin (top-left) of the block based on the offset
-        let targetRow = row;
-        let targetCol = col;
+            // Fix: Adjust Y coordinate for grid calculation to match ghost visual position
+            const adjustedY = y - VERTICAL_CURSOR_OFFSET;
+            const cellCoords = getCellCoordsAt(x, adjustedY);
 
-        if (dragState.blockIndex !== null) {
-            targetRow -= dragState.dragOffsetRow;
-            targetCol -= dragState.dragOffsetCol;
-            highlightPlacement(targetRow, targetCol);
-        } else {
-            highlightPlacement(row, col);
-        }
-    } else {
-        if (dragState.lastHighlightedCell !== null) {
-            clearGridHighlights();
-            dragState.lastHighlightedCell = null;
-        }
+            if (cellCoords) {
+                const { row, col } = cellCoords;
+
+                // Sound feedback on new cell
+                const cellKey = `${row}-${col}`;
+                if (dragState.lastHighlightedCell !== cellKey) {
+                    sounds.tick();
+                    dragState.lastHighlightedCell = cellKey;
+                }
+
+                // Calculate target origin (top-left) of the block based on the offset
+                let targetRow = row;
+                let targetCol = col;
+
+                if (dragState.blockIndex !== null) {
+                    targetRow -= dragState.dragOffsetRow;
+                    targetCol -= dragState.dragOffsetCol;
+                    highlightPlacement(targetRow, targetCol);
+                } else {
+                    highlightPlacement(row, col);
+                }
+            } else {
+                if (dragState.lastHighlightedCell !== null) {
+                    clearGridHighlights();
+                    dragState.lastHighlightedCell = null;
+                }
+            }
+        });
     }
 }
 
 function handlePointerUp(e) {
     if (!dragState.isDragging) return;
 
-    const cellCoords = getCellCoordsAt(e.clientX, e.clientY);
+    // Fix: Adjust Y coordinate to match where the ghost block visually appears
+    const adjustedY = e.clientY - VERTICAL_CURSOR_OFFSET;
+    const cellCoords = getCellCoordsAt(e.clientX, adjustedY);
+
     if (cellCoords) {
         const { row, col } = cellCoords;
 
@@ -1100,7 +1166,8 @@ function updateGhostPosition(x, y) {
     const offsetY = (dragState.dragOffsetRow * size) + (size / 2);
 
     const targetX = x - offsetX;
-    const targetY = y - offsetY;
+    // Block Blast style: Add vertical offset so block appears above cursor
+    const targetY = y - offsetY - VERTICAL_CURSOR_OFFSET;
 
     dragState.ghostElement.style.transform = `translate3d(${targetX}px, ${targetY}px, 0)`;
 }
@@ -1193,9 +1260,19 @@ function highlightPlacement(row, col) {
 }
 
 function clearGridHighlights() {
-    document.querySelectorAll('.grid-cell').forEach(cell => {
-        cell.classList.remove('highlight-valid', 'highlight-invalid', 'highlight-bomb');
-    });
+    // Performance: Use cached cells instead of querySelectorAll
+    if (gameState.cellCache) {
+        gameState.cellCache.forEach(row => {
+            row.forEach(cell => {
+                cell.classList.remove('highlight-valid', 'highlight-invalid', 'highlight-bomb');
+            });
+        });
+    } else {
+        // Fallback
+        document.querySelectorAll('.grid-cell').forEach(cell => {
+            cell.classList.remove('highlight-valid', 'highlight-invalid', 'highlight-bomb');
+        });
+    }
 }
 
 // ========================================
@@ -1288,8 +1365,10 @@ function placeBlock(row, col, blockIndex) {
     }
 
     clearGridHighlights();
+    clearGridHighlights();
     updateUI();
     updatePowerupUI();
+    saveGameState();
 }
 
 // ========================================
@@ -1302,7 +1381,7 @@ function showCombo(comboCount) {
     // Reset animation
     elements.comboDisplay.style.animation = 'none';
     elements.comboDisplay.offsetHeight; /* trigger reflow */
-    elements.comboDisplay.style.animation = 'praiseAnimation 1.5s ease-out forwards';
+    elements.comboDisplay.style.animation = 'comboSimplePop 1s ease-out forwards';
 
     // Clear previous timeout to handle rapid combo increments
     if (elements.comboDisplay.timeout) clearTimeout(elements.comboDisplay.timeout);
@@ -1310,7 +1389,7 @@ function showCombo(comboCount) {
     // Hide after animation finishes
     elements.comboDisplay.timeout = setTimeout(() => {
         elements.comboDisplay.classList.add('hidden');
-    }, 1500);
+    }, 1000);
 }
 
 // ========================================
@@ -1489,7 +1568,8 @@ function createParticles(row, col) {
     const rect = cell.getBoundingClientRect();
     const containerRect = elements.particleContainer.getBoundingClientRect();
 
-    for (let i = 0; i < 8; i++) { // Increased particle count
+    // Performance: Reduced from 8 to 5 particles for low-end devices
+    for (let i = 0; i < 5; i++) {
         const particle = document.createElement('div');
         particle.className = 'particle';
 
@@ -1520,6 +1600,11 @@ function createParticles(row, col) {
 // Get Cell Element
 // ========================================
 function getCellElement(row, col) {
+    // Performance: Use cached cells instead of DOM query
+    if (gameState.cellCache && gameState.cellCache[row] && gameState.cellCache[row][col]) {
+        return gameState.cellCache[row][col];
+    }
+    // Fallback to DOM query if cache not available
     return document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
 }
 
@@ -1626,6 +1711,211 @@ function updateUI() {
 }
 
 // ========================================
+// Game State Persistence
+// ========================================
+const SAVE_KEY = 'blockglass_save';
+const SAVE_VERSION = '1.3';
+
+function saveGameState() {
+    try {
+        const saveData = {
+            version: SAVE_VERSION,
+            timestamp: Date.now(),
+            score: gameState.score,
+            highScore: gameState.highScore,
+            grid: gameState.grid,
+            availableBlocks: gameState.availableBlocks,
+            powerups: {
+                bombs: gameState.powerups.bomb,
+                undos: gameState.powerups.undo,
+                fills: gameState.powerups.fill,
+                rolls: gameState.powerups.roll
+            },
+            undoHistory: gameState.undoHistory,
+            isGameOver: gameState.isGameOver
+        };
+        localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
+    } catch (error) {
+        console.error('Failed to save game state:', error);
+    }
+}
+
+function loadGameState() {
+    try {
+        const savedData = localStorage.getItem(SAVE_KEY);
+        if (!savedData) return null;
+
+        const data = JSON.parse(savedData);
+
+        // Version check
+        if (data.version !== SAVE_VERSION) {
+            console.warn('Save version mismatch, clearing save');
+            clearGameState();
+            return null;
+        }
+
+        return data;
+    } catch (error) {
+        console.error('Failed to load game state:', error);
+        return null;
+    }
+}
+
+function restoreGameState(data) {
+    if (!data) return false;
+
+    try {
+        gameState.score = data.score;
+        gameState.highScore = data.highScore;
+        gameState.grid = data.grid;
+        gameState.availableBlocks = data.availableBlocks;
+        gameState.undoHistory = data.undoHistory || [];
+
+        // Restore powerups
+        // Restore powerups
+        gameState.powerups = {
+            bomb: data.powerups.bombs,
+            undo: data.powerups.undos,
+            fill: data.powerups.fills,
+            roll: data.powerups.rolls !== undefined ? data.powerups.rolls : 2
+        };
+
+        elements.bombCount.textContent = gameState.powerups.bomb;
+        elements.undoCount.textContent = gameState.powerups.undo;
+        elements.fillCount.textContent = gameState.powerups.fill;
+        elements.rollCount.textContent = gameState.powerups.roll;
+
+        renderGrid();
+        renderAvailableBlocks();
+        updateUI();
+        updatePowerupUI();
+
+        return true;
+    } catch (error) {
+        console.error('Failed to restore game state:', error);
+        return false;
+    }
+}
+
+function clearGameState() {
+    localStorage.removeItem(SAVE_KEY);
+}
+
+// ========================================
+// Lobby & Navigation
+// ========================================
+// DOM Elements
+const gameContainer = document.getElementById('gameContainer');
+const gameGrid = document.getElementById('gameGrid');
+const lobbyScreen = document.getElementById('lobbyScreen');
+const playButton = document.getElementById('playButton');
+const backButton = document.getElementById('backButton');
+const saveExitBtn = document.getElementById('saveExitBtn');
+const optionsMenu = document.getElementById('optionsMenu');
+const restartGameBtn = document.getElementById('restartGameBtn');
+const cancelOptionsBtn = document.getElementById('cancelOptionsBtn');
+const restartConfirmationModal = document.getElementById('restartConfirmationModal');
+const confirmRestartBtn = document.getElementById('confirmRestartBtn');
+const cancelRestartBtn = document.getElementById('cancelRestartBtn');
+
+function showLobby() {
+    lobbyScreen.style.display = 'flex';
+    gameContainer.style.display = 'none';
+
+    // Show High Score in Lobby
+    const lobbyHighScore = document.getElementById('lobbyHighScore');
+    const lobbyHighScoreValue = document.getElementById('lobbyHighScoreValue');
+
+    // Get high score from save or current state
+    let currentHighScore = gameState.highScore;
+    if (!currentHighScore && savedGame) {
+        currentHighScore = savedGame.highScore || 0;
+    } else if (!currentHighScore) {
+        // Fallback to localStorage directly if not in gameState yet
+        currentHighScore = parseInt(localStorage.getItem('blockglassHighScore')) || 0;
+    }
+
+    if (currentHighScore > 0) {
+        lobbyHighScoreValue.textContent = currentHighScore;
+        lobbyHighScore.classList.remove('hidden');
+    } else {
+        lobbyHighScore.classList.add('hidden');
+    }
+}
+
+function showGame() {
+    lobbyScreen.style.display = 'none';
+    gameContainer.style.display = 'block';
+}
+
+function showOptionsMenu() {
+    optionsMenu.classList.remove('hidden');
+}
+
+function hideOptionsMenu() {
+    optionsMenu.classList.add('hidden');
+}
+
+function startNewGame() {
+    clearGameState();
+    restartGame();
+    showGame();
+}
+
+function continueGame() {
+    const savedGame = loadGameState();
+    if (savedGame) {
+        restoreGameState(savedGame);
+        showGame();
+    } else {
+        startNewGame();
+    }
+}
+
+function saveAndExit() {
+    saveGameState();
+    hideOptionsMenu();
+    showLobby();
+}
+
+function restartFromMenu() {
+    restartConfirmationModal.classList.remove('hidden');
+}
+
+// Event Listeners
+playButton.addEventListener('click', () => {
+    sounds.bonus();
+    // Smart Play: Continue if save exists and not game over, else New Game
+    const savedGame = loadGameState();
+    if (savedGame && !savedGame.isGameOver) {
+        restoreGameState(savedGame);
+        showGame();
+    } else {
+        startNewGame();
+    }
+});
+// continueButton removed
+backButton.addEventListener('click', showOptionsMenu);
+saveExitBtn.addEventListener('click', saveAndExit);
+restartGameBtn.addEventListener('click', restartFromMenu);
+cancelOptionsBtn.addEventListener('click', hideOptionsMenu);
+
+// Restart Confirmation Listeners
+confirmRestartBtn.addEventListener('click', () => {
+    clearGameState();
+    restartGame();
+    restartConfirmationModal.classList.add('hidden');
+    hideOptionsMenu();
+});
+cancelRestartBtn.addEventListener('click', () => {
+    restartConfirmationModal.classList.add('hidden');
+});
+optionsMenu.querySelector('.options-overlay').addEventListener('click', hideOptionsMenu);
+
+// Auto-save wrapper removed in favor of direct calls
+
+// ========================================
 // Start Game
 // ========================================
 initGame();
+showLobby();
