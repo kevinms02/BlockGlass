@@ -25,7 +25,7 @@ const gameState = {
 };
 
 // Drag state
-const VERTICAL_CURSOR_OFFSET = 75; // Block Blast style: vertical gap between cursor and block
+const VERTICAL_CURSOR_OFFSET = 120; // Increased gap for better visibility during drag
 
 let dragState = {
     isDragging: false,
@@ -1438,10 +1438,12 @@ function checkAndClearLines(sourceRow, sourceCol, suppressSound = false) {
 
         // Check for "Clean Slate" (Empty Grid) after clearing
         // We delay slightly to let the clear happen logically
-        setTimeout(() => {
+        setTimeout(async () => {
             const isEmpty = gameState.grid.every(row => row.every(cell => cell === null));
             if (isEmpty) {
-                triggerCleanSlateEffect();
+                // Trigger the Grid Sweep animation as a celebration
+                sounds.cleanSlate();
+                await triggerGridSweepAnimation();
             }
         }, 100);
     }
@@ -1681,7 +1683,97 @@ function gameOver() {
     }
 }
 
-function restartGame() {
+// ========================================
+// Grid Sweep Animation
+// ========================================
+async function triggerGridSweepAnimation(addStartBlocks = false) {
+    // Temporarily fill the grid visually (not in state)
+    const tempGradients = [];
+
+    for (let row = 0; row < GRID_SIZE; row++) {
+        tempGradients[row] = [];
+        for (let col = 0; col < GRID_SIZE; col++) {
+            const gradient = Math.floor(Math.random() * 7) + 1;
+            tempGradients[row][col] = gradient;
+
+            const cell = getCellElement(row, col);
+            if (cell) {
+                cell.classList.add('filled');
+                cell.style.background = `var(--gradient-${gradient})`;
+            }
+        }
+    }
+
+    // Short pause to show full grid
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Clear from bottom to top
+    for (let row = GRID_SIZE - 1; row >= 0; row--) {
+        // Play line clear sound (not just tick)
+        sounds.clear(1);
+
+        // Clear entire row with particles
+        for (let col = 0; col < GRID_SIZE; col++) {
+            createParticles(row, col);
+
+            const cell = getCellElement(row, col);
+            if (cell) {
+                // Stagger the visual clear slightly within the row
+                setTimeout(() => {
+                    cell.classList.remove('filled');
+                    cell.style.background = '';
+                }, col * 15);
+            }
+        }
+
+        // Wait before clearing next row
+        await new Promise(resolve => setTimeout(resolve, 120));
+    }
+
+
+
+    // Optionally add random start blocks after sweep with animation
+    if (addStartBlocks) {
+        // Place blocks in grid state (invisible for now)
+        addRandomStartBlocks();
+
+        // Count total blocks for pitch progression
+        const totalBlocks = gameState.grid.flat().filter(cell => cell !== null).length;
+        let blockCounter = 0;
+
+        // Start reverse sweep after a small delay (250ms) to overlap with main sweep
+        setTimeout(async () => {
+            // Animate them appearing from bottom to top
+            for (let row = GRID_SIZE - 1; row >= 0; row--) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    if (gameState.grid[row][col] !== null) {
+                        const cell = getCellElement(row, col);
+                        if (cell) {
+                            // Progressive pitch: start at 300Hz, end at 600Hz
+                            const pitchProgress = blockCounter / Math.max(totalBlocks - 1, 1);
+                            const frequency = 300 + (pitchProgress * 300);
+                            blockCounter++;
+
+                            // Stagger appearance within the row
+                            setTimeout(() => {
+                                cell.classList.add('filled');
+                                cell.style.background = `var(--gradient-${gameState.grid[row][col]})`;
+                                sounds.place(frequency);
+                            }, col * 20);
+                        }
+                    }
+                }
+                // Wait before revealing next row up
+                await new Promise(resolve => setTimeout(resolve, 80));
+            }
+        }, 250);
+    }
+
+    // Wait for the entire animation sequence to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+}
+
+async function restartGame() {
     gameState.grid = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
     gameState.score = 0;
     gameState.linesCleared = 0;
@@ -1693,10 +1785,8 @@ function restartGame() {
     gameState.hasUsedSaveMe = false;
     gameState.scoredInCurrentCycle = false; // Reset cycle score flag
 
-    document.querySelectorAll('.grid-cell').forEach(cell => {
-        cell.classList.remove('filled');
-        cell.style.background = '';
-    });
+    // Trigger the Grid Sweep animation with start blocks
+    await triggerGridSweepAnimation(true);
 
     elements.gameOverModal.classList.add('hidden');
 
@@ -1856,17 +1946,19 @@ function hideOptionsMenu() {
     optionsMenu.classList.add('hidden');
 }
 
-function startNewGame() {
+async function startNewGame() {
     clearGameState();
-    restartGame();
+    await restartGame();
     showGame();
 }
 
-function continueGame() {
+async function continueGame() {
     const savedGame = loadGameState();
     if (savedGame) {
         restoreGameState(savedGame);
         showGame();
+        // Play sweep animation when entering the game with start blocks
+        await triggerGridSweepAnimation(true);
     } else {
         startNewGame();
     }
@@ -1883,13 +1975,15 @@ function restartFromMenu() {
 }
 
 // Event Listeners
-playButton.addEventListener('click', () => {
+playButton.addEventListener('click', async () => {
     sounds.bonus();
     // Smart Play: Continue if save exists and not game over, else New Game
     const savedGame = loadGameState();
     if (savedGame && !savedGame.isGameOver) {
         restoreGameState(savedGame);
         showGame();
+        // Play sweep animation when entering the game with start blocks
+        await triggerGridSweepAnimation(true);
     } else {
         startNewGame();
     }
