@@ -328,31 +328,23 @@ body {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
-    transition: all var(--transition-smooth);
+    /* Performance: Faster transition for less lag */
+    transition: background 0.1s ease, transform 0.1s ease;
     position: relative;
+    /* Performance: GPU acceleration hints */
+    will-change: background, transform;
+    contain: layout style paint;
 }
 
 .grid-cell.filled {
     border: 1px solid rgba(255, 255, 255, 0.4);
-    box-shadow:
-        inset 0 0 10px rgba(255, 255, 255, 0.3),
-        inset 0 0 2px rgba(255, 255, 255, 0.8),
-        0 4px 10px rgba(0, 0, 0, 0.3);
+    /* Performance: Simplified box-shadow for less repaints */
+    box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.3);
     position: relative;
     overflow: hidden;
 }
 
-.grid-cell.filled::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 50%;
-    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.4), transparent);
-    border-radius: 4px 4px 0 0;
-    pointer-events: none;
-}
+/* Performance: Removed ::after texture overlay for better performance */
 
 .grid-cell.highlight-valid {
     background: var(--glow-valid);
@@ -365,6 +357,15 @@ body {
     background: var(--glow-invalid);
     border-color: rgba(255, 85, 85, 0.8);
     animation: shake 0.3s ease-in-out;
+}
+
+.grid-cell.line-glow {
+    /* Golden glow for lines that will be cleared */
+    box-shadow:
+        0 0 15px rgba(255, 215, 0, 0.8),
+        inset 0 0 15px rgba(255, 215, 0, 0.4);
+    border-color: rgba(255, 215, 0, 0.9);
+    animation: line-pulse 0.6s ease-in-out infinite;
 }
 
 @keyframes pulse-valid {
@@ -392,6 +393,22 @@ body {
 
     75% {
         transform: translateX(4px);
+    }
+}
+
+@keyframes line-pulse {
+
+    0%,
+    100% {
+        box-shadow:
+            0 0 10px rgba(255, 215, 0, 0.6),
+            inset 0 0 10px rgba(255, 215, 0, 0.3);
+    }
+
+    50% {
+        box-shadow:
+            0 0 20px rgba(255, 215, 0, 1),
+            inset 0 0 20px rgba(255, 215, 0, 0.6);
     }
 }
 

@@ -808,10 +808,22 @@ function getSolvableBlockSet(count) {
         return false;
     };
 
-    for (let attempt = 0; attempt < 50; attempt++) {
+    // Try more attempts for better results (100 instead of 50)
+    for (let attempt = 0; attempt < 100; attempt++) {
         const candidateSet = [];
+
+        // Calculate grid fullness to prioritize smaller blocks when tight
+        const emptyCells = gameState.grid.flat().filter(c => c === null).length;
+        const isGridTight = emptyCells < 20;
+
         for (let i = 0; i < count; i++) {
-            const randomShape = BLOCK_SHAPES[Math.floor(Math.random() * BLOCK_SHAPES.length)];
+            let randomShape;
+            if (isGridTight && Math.random() < 0.7) {
+                // Prefer smaller shapes (first 10 are smaller)
+                randomShape = BLOCK_SHAPES[Math.floor(Math.random() * 10)];
+            } else {
+                randomShape = BLOCK_SHAPES[Math.floor(Math.random() * BLOCK_SHAPES.length)];
+            }
             candidateSet.push({
                 ...randomShape,
                 gradient: Math.floor(Math.random() * 7) + 1
@@ -1111,8 +1123,12 @@ function handlePointerUp(e) {
         // unless they also need offset. Bomb logic usually takes "centerRow/Col".
 
         if (dragState.blockIndex !== null) {
+            // Use snapped position if smart snap found a valid spot
+            const placeRow = dragState.snappedRow !== null ? dragState.snappedRow : targetRow;
+            const placeCol = dragState.snappedCol !== null ? dragState.snappedCol : targetCol;
+
             // placeBlock handles bounds checking internally
-            placeBlock(targetRow, targetCol, dragState.blockIndex);
+            placeBlock(placeRow, placeCol, dragState.blockIndex);
         } else if (dragState.powerupType) {
             handlePowerupDrop(row, col);
         }
@@ -1142,6 +1158,8 @@ function endDrag() {
     dragState.lastHighlightedCell = null;
     dragState.gridRect = null;
     dragState.cellSize = 0;
+    dragState.snappedRow = null;
+    dragState.snappedCol = null;
 
     clearGridHighlights();
 }
@@ -1205,6 +1223,41 @@ function getCellUnderPointer(x, y) {
 }
 
 // ========================================
+// Check which lines would be completed by placing block
+// ========================================
+function getCompletableLines(row, col, block) {
+    if (!canPlaceBlock(row, col, block)) return [];
+
+    const linesToComplete = [];
+
+    // Simulate placing the block
+    const tempGrid = gameState.grid.map(r => [...r]);
+    block.cells.forEach(([dr, dc]) => {
+        const r = row + dr;
+        const c = col + dc;
+        if (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE) {
+            tempGrid[r][c] = 1; // Mark as filled
+        }
+    });
+
+    // Check rows
+    for (let r = 0; r < GRID_SIZE; r++) {
+        if (tempGrid[r].every(cell => cell !== null)) {
+            linesToComplete.push({ type: 'row', index: r });
+        }
+    }
+
+    // Check columns
+    for (let c = 0; c < GRID_SIZE; c++) {
+        if (tempGrid.every(row => row[c] !== null)) {
+            linesToComplete.push({ type: 'col', index: c });
+        }
+    }
+
+    return linesToComplete;
+}
+
+// ========================================
 // Highlight Placement
 // ========================================
 function highlightPlacement(row, col) {
@@ -1219,11 +1272,47 @@ function highlightPlacement(row, col) {
         // So 'row' and 'col' are ALREADY the top-left origin.
         // We do NOT subtract again.
 
-        const isValid = canPlaceBlock(row, col, block);
+        let isValid = canPlaceBlock(row, col, block);
+        let finalRow = row;
+        let finalCol = col;
+
+        // Smart Snap: If invalid, try to find nearest valid position within 1 cell
+        if (!isValid) {
+            const offsets = [
+                [0, 1], [0, -1], [1, 0], [-1, 0],  // Cardinal directions
+                [1, 1], [1, -1], [-1, 1], [-1, -1] // Diagonals
+            ];
+
+            for (const [dr, dc] of offsets) {
+                const testRow = row + dr;
+                const testCol = col + dc;
+
+                if (canPlaceBlock(testRow, testCol, block)) {
+                    finalRow = testRow;
+                    finalCol = testCol;
+                    isValid = true;
+
+                    // Store snapped position for placement
+                    dragState.snappedRow = finalRow;
+                    dragState.snappedCol = finalCol;
+                    break;
+                }
+            }
+
+            // If still invalid, clear snapped position
+            if (!isValid) {
+                dragState.snappedRow = null;
+                dragState.snappedCol = null;
+            }
+        } else {
+            // Direct placement is valid, use original position
+            dragState.snappedRow = row;
+            dragState.snappedCol = col;
+        }
 
         block.cells.forEach(([dr, dc]) => {
-            const targetRow = row + dr;
-            const targetCol = col + dc;
+            const targetRow = finalRow + dr;
+            const targetCol = finalCol + dc;
 
             if (targetRow >= 0 && targetRow < GRID_SIZE && targetCol >= 0 && targetCol < GRID_SIZE) {
                 const cell = getCellElement(targetRow, targetCol);
@@ -1232,6 +1321,24 @@ function highlightPlacement(row, col) {
                 }
             }
         });
+
+        // Highlight lines that would be completed
+        if (isValid) {
+            const completableLines = getCompletableLines(finalRow, finalCol, block);
+            completableLines.forEach(line => {
+                if (line.type === 'row') {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        const cell = getCellElement(line.index, c);
+                        if (cell) cell.classList.add('line-glow');
+                    }
+                } else if (line.type === 'col') {
+                    for (let r = 0; r < GRID_SIZE; r++) {
+                        const cell = getCellElement(r, line.index);
+                        if (cell) cell.classList.add('line-glow');
+                    }
+                }
+            });
+        }
     } else if (dragState.powerupType === 'bomb') {
         // Highlight 5x5 diamond area for bomb
         // Distances from center: |r| + |c| <= 2
@@ -1264,13 +1371,13 @@ function clearGridHighlights() {
     if (gameState.cellCache) {
         gameState.cellCache.forEach(row => {
             row.forEach(cell => {
-                cell.classList.remove('highlight-valid', 'highlight-invalid', 'highlight-bomb');
+                cell.classList.remove('highlight-valid', 'highlight-invalid', 'highlight-bomb', 'line-glow');
             });
         });
     } else {
         // Fallback
         document.querySelectorAll('.grid-cell').forEach(cell => {
-            cell.classList.remove('highlight-valid', 'highlight-invalid', 'highlight-bomb');
+            cell.classList.remove('highlight-valid', 'highlight-invalid', 'highlight-bomb', 'line-glow');
         });
     }
 }
@@ -1570,8 +1677,8 @@ function createParticles(row, col) {
     const rect = cell.getBoundingClientRect();
     const containerRect = elements.particleContainer.getBoundingClientRect();
 
-    // Performance: Reduced to 3 particles for smoother gameplay on all devices
-    for (let i = 0; i < 3; i++) {
+    // Performance: Reduced to 2 particles for smoother gameplay
+    for (let i = 0; i < 2; i++) {
         const particle = document.createElement('div');
         particle.className = 'particle';
 
@@ -1726,8 +1833,8 @@ async function triggerGridSweepAnimation(addStartBlocks = false) {
             }
         }
 
-        // Wait before clearing next row
-        await new Promise(resolve => setTimeout(resolve, 120));
+        // Wait before clearing next row (reduced from 120ms for less lag)
+        await new Promise(resolve => setTimeout(resolve, 60));
     }
 
 
