@@ -1053,48 +1053,44 @@ function handlePointerMove(e) {
     dragState.lastPointerX = e.clientX;
     dragState.lastPointerY = e.clientY;
 
-    // Performance: Use requestAnimationFrame for smooth updates
+    // Immediate highlight update for better mobile responsiveness
+    const adjustedY = e.clientY - VERTICAL_CURSOR_OFFSET;
+    const cellCoords = getCellCoordsAt(e.clientX, adjustedY);
+
+    if (cellCoords) {
+        const { row, col } = cellCoords;
+
+        // Calculate target origin (top-left) of the block based on the offset
+        let targetRow = row;
+        let targetCol = col;
+
+        if (dragState.blockIndex !== null) {
+            targetRow -= dragState.dragOffsetRow;
+            targetCol -= dragState.dragOffsetCol;
+            highlightPlacement(targetRow, targetCol);
+        } else {
+            highlightPlacement(row, col);
+        }
+
+        // Sound feedback on new cell
+        const cellKey = `${row}-${col}`;
+        if (dragState.lastHighlightedCell !== cellKey) {
+            sounds.tick();
+            dragState.lastHighlightedCell = cellKey;
+        }
+    } else {
+        if (dragState.lastHighlightedCell !== null) {
+            clearGridHighlights();
+            dragState.lastHighlightedCell = null;
+        }
+    }
+
+    // Performance: Use requestAnimationFrame only for ghost position updates
     if (!dragState.rafScheduled) {
         dragState.rafScheduled = true;
         requestAnimationFrame(() => {
             dragState.rafScheduled = false;
-
-            const x = dragState.lastPointerX;
-            const y = dragState.lastPointerY;
-
-            updateGhostPosition(x, y);
-
-            // Fix: Adjust Y coordinate for grid calculation to match ghost visual position
-            const adjustedY = y - VERTICAL_CURSOR_OFFSET;
-            const cellCoords = getCellCoordsAt(x, adjustedY);
-
-            if (cellCoords) {
-                const { row, col } = cellCoords;
-
-                // Sound feedback on new cell
-                const cellKey = `${row}-${col}`;
-                if (dragState.lastHighlightedCell !== cellKey) {
-                    sounds.tick();
-                    dragState.lastHighlightedCell = cellKey;
-                }
-
-                // Calculate target origin (top-left) of the block based on the offset
-                let targetRow = row;
-                let targetCol = col;
-
-                if (dragState.blockIndex !== null) {
-                    targetRow -= dragState.dragOffsetRow;
-                    targetCol -= dragState.dragOffsetCol;
-                    highlightPlacement(targetRow, targetCol);
-                } else {
-                    highlightPlacement(row, col);
-                }
-            } else {
-                if (dragState.lastHighlightedCell !== null) {
-                    clearGridHighlights();
-                    dragState.lastHighlightedCell = null;
-                }
-            }
+            updateGhostPosition(dragState.lastPointerX, dragState.lastPointerY);
         });
     }
 }
