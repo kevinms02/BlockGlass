@@ -21,7 +21,11 @@ const gameState = {
     comboCount: 0,
     lastClearTime: 0,
     scoredInCurrentCycle: false, // Track if any block in the current 3-block cycle cleared a line
-    cellCache: [] // Performance: Cache cell elements
+    cellCache: [], // Performance: Cache cell elements
+    settings: {
+        soundEnabled: true,
+        vibrationEnabled: true
+    }
 };
 
 // Drag state
@@ -68,6 +72,7 @@ const sounds = {
         this.loadSound('Assets/SoundEffects/video-game-bonus-323603.mp3', 'cleanSlate');
         this.loadSound('Assets/SoundEffects/fail-234710.mp3', 'fail');
         this.loadSound('Assets/SoundEffects/block-placed.mp3', 'place');
+        this.loadSound('Assets/SoundEffects/virtual_vibes-pop-tap-click-fx-383733.mp3', 'uiClick');
     },
     loadSound: function (url, key) {
         fetch(url)
@@ -79,6 +84,8 @@ const sounds = {
             .catch(e => console.warn(`Failed to load sound ${key}:`, e));
     },
     place: (frequency = 440) => {
+        if (!gameState.settings.soundEnabled) return; // Check sound settings
+
         if (sounds.buffer.place) {
             const source = audioCtx.createBufferSource();
             source.buffer = sounds.buffer.place;
@@ -98,12 +105,26 @@ const sounds = {
             osc.stop(audioCtx.currentTime + 0.1);
         }
     },
-    clear: (count = 1) => {
+    clear: (count = 1, comboCount = 0) => {
+        if (!gameState.settings.soundEnabled) return; // Check sound settings
+
+        // Calculate pitch multiplier based on combo count
+        // Start at 1.0, increase by 0.1 for each combo level after 2
+        // Cap at 2.0 (combo 10+)
+        let pitchMultiplier = 1.0;
+        if (comboCount > 2) {
+            pitchMultiplier = Math.min(1.0 + ((comboCount - 2) * 0.1), 2.0);
+        }
+
         // Play game start sound for clear
         if (sounds.buffer.gameStart) {
             const playSound = (offset) => {
                 const source = audioCtx.createBufferSource();
                 source.buffer = sounds.buffer.gameStart;
+
+                // Apply pitch shift using playbackRate
+                source.playbackRate.value = pitchMultiplier;
+
                 source.connect(audioCtx.destination);
                 // Start 0.4s into the buffer to skip any silence/buildup
                 source.start(audioCtx.currentTime + offset, 0.4);
@@ -117,9 +138,8 @@ const sounds = {
                 playSound((i + 1) * 0.08); // 80ms stagger
             }
         } else {
-            // Fallback synth
+            // Fallback synth with pitch multiplier
             const t = audioCtx.currentTime;
-            const pitchMultiplier = 1.0;
 
             // Low bubbling layer
             const osc = audioCtx.createOscillator();
@@ -156,6 +176,8 @@ const sounds = {
         }
     },
     powerup: () => {
+        if (!gameState.settings.soundEnabled) return;
+
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain);
@@ -169,6 +191,8 @@ const sounds = {
         osc.stop(audioCtx.currentTime + 0.15);
     },
     boom: () => {
+        if (!gameState.settings.soundEnabled) return;
+
         // Play custom missile explosion
         if (sounds.buffer.boom) {
             const source = audioCtx.createBufferSource();
@@ -202,6 +226,8 @@ const sounds = {
         }
     },
     fail: () => {
+        if (!gameState.settings.soundEnabled) return;
+
         // Play custom fail sound
         if (sounds.buffer.fail) {
             const source = audioCtx.createBufferSource();
@@ -248,6 +274,8 @@ const sounds = {
         }
     },
     tick: () => {
+        if (!gameState.settings.soundEnabled) return;
+
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain);
@@ -261,6 +289,8 @@ const sounds = {
         osc.stop(audioCtx.currentTime + 0.05);
     },
     bonus: () => {
+        if (!gameState.settings.soundEnabled) return;
+
         if (audioCtx.state === 'suspended') audioCtx.resume();
 
         if (sounds.buffer.cleanSlate) {
@@ -281,6 +311,31 @@ const sounds = {
             gain.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
             osc.start(t);
             osc.stop(t + 0.3);
+        }
+    },
+    uiClick: () => {
+        if (!gameState.settings.soundEnabled) return;
+
+        if (sounds.buffer.uiClick) {
+            const source = audioCtx.createBufferSource();
+            source.buffer = sounds.buffer.uiClick;
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = 0.4; // Lower volume for UI sounds
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            source.start(0);
+        } else {
+            // Fallback click sound
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.value = 800;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.05);
         }
     }
 };
@@ -369,7 +424,8 @@ const elements = {
     comboDisplay: document.getElementById('comboDisplay'),
     comboValue: document.getElementById('comboValue'),
     praiseNotification: document.getElementById('praiseNotification'),
-    saveMeBtn: document.getElementById('saveMeBtn')
+    saveMeBtn: document.getElementById('saveMeBtn'),
+    footer: document.querySelector('.game-footer')
 };
 
 // ========================================
@@ -767,90 +823,102 @@ function getBlockDimensions(cells) {
 // Generate Random Blocks (Smart Algorithm)
 // ========================================
 
+// Helper: check if a specific block shape can be placed anywhere on a grid
+function canFitAnywhere(grid, block) {
+    for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+            let fits = true;
+            for (let i = 0; i < block.cells.length; i++) {
+                const [dr, dc] = block.cells[i];
+                const tr = r + dr;
+                const tc = c + dc;
+                if (tr < 0 || tr >= GRID_SIZE || tc < 0 || tc >= GRID_SIZE || grid[tr][tc] !== null) {
+                    fits = false;
+                    break;
+                }
+            }
+            if (fits) return true;
+        }
+    }
+    return false;
+}
+
 // Helper to find a set of blocks that fits the current grid
 function getSolvableBlockSet(count) {
     if (count <= 0) return [];
 
-    let bestSet = [];
-    let validSetFound = false;
+    const grid = gameState.grid;
+    const emptyCells = grid.flat().filter(c => c === null).length;
+    const isGridTight = emptyCells < 20;
+    const isGridVeryTight = emptyCells < 12;
 
-    // Recursive solver to check if a sequence of blocks fits
-    const solveSequence = (grid, blocks, index) => {
-        if (index >= blocks.length) return true;
+    // Step 1: Find ALL block shapes that can actually fit the current grid
+    const fittingShapes = [];
+    const smallFittingShapes = []; // Shapes with <= 3 cells
 
-        const block = blocks[index];
-        // Try to place this block anywhere
-        for (let r = 0; r < GRID_SIZE; r++) {
-            for (let c = 0; c < GRID_SIZE; c++) {
-                // Check fitting (inline for performance)
-                let fits = true;
-                for (let i = 0; i < block.cells.length; i++) {
-                    const [dr, dc] = block.cells[i];
-                    const tr = r + dr;
-                    const tc = c + dc;
-                    if (tr < 0 || tr >= GRID_SIZE || tc < 0 || tc >= GRID_SIZE || grid[tr][tc] !== null) {
-                        fits = false;
-                        break;
-                    }
-                }
-
-                if (fits) {
-                    // Place temp
-                    block.cells.forEach(([dr, dc]) => grid[r + dr][c + dc] = 99);
-
-                    if (solveSequence(grid, blocks, index + 1)) return true;
-
-                    // Backtrack
-                    block.cells.forEach(([dr, dc]) => grid[r + dr][c + dc] = null);
-                }
+    for (let i = 0; i < BLOCK_SHAPES.length; i++) {
+        if (canFitAnywhere(grid, BLOCK_SHAPES[i])) {
+            fittingShapes.push(BLOCK_SHAPES[i]);
+            if (BLOCK_SHAPES[i].cells.length <= 3) {
+                smallFittingShapes.push(BLOCK_SHAPES[i]);
             }
         }
-        return false;
-    };
+    }
 
-    // Try more attempts for better results (100 instead of 50)
-    for (let attempt = 0; attempt < 100; attempt++) {
-        const candidateSet = [];
-
-        // Calculate grid fullness to prioritize smaller blocks when tight
-        const emptyCells = gameState.grid.flat().filter(c => c === null).length;
-        const isGridTight = emptyCells < 20;
-
+    // Step 2: If nothing fits at all, give mercy 1x1 blocks
+    if (fittingShapes.length === 0) {
+        console.log("No blocks fit at all — mercy 1x1 blocks");
+        const mercySet = [];
         for (let i = 0; i < count; i++) {
-            let randomShape;
-            if (isGridTight && Math.random() < 0.7) {
-                // Prefer smaller shapes (first 10 are smaller)
-                randomShape = BLOCK_SHAPES[Math.floor(Math.random() * 10)];
+            mercySet.push({ ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 });
+        }
+        return mercySet;
+    }
+
+    // Step 3: Build the block set — guarantee at least 1 fits
+    const resultSet = [];
+
+    for (let i = 0; i < count; i++) {
+        let pool;
+
+        if (i === 0) {
+            // FIRST block MUST be placeable — pick from fitting shapes
+            // On tight grids, strongly prefer small shapes
+            if (isGridVeryTight && smallFittingShapes.length > 0) {
+                pool = smallFittingShapes;
+            } else if (isGridTight && smallFittingShapes.length > 0 && Math.random() < 0.7) {
+                pool = smallFittingShapes;
             } else {
-                randomShape = BLOCK_SHAPES[Math.floor(Math.random() * BLOCK_SHAPES.length)];
+                pool = fittingShapes;
             }
-            candidateSet.push({
-                ...randomShape,
-                gradient: Math.floor(Math.random() * 7) + 1
-            });
+        } else {
+            // Other blocks: TRY to pick fitting shapes, but allow occasional unfittable ones
+            // for challenge. On tight grids, always pick fittable.
+            if (isGridTight) {
+                // Tight grid: all blocks should be fittable
+                if (isGridVeryTight && smallFittingShapes.length > 0) {
+                    pool = smallFittingShapes;
+                } else {
+                    pool = fittingShapes;
+                }
+            } else {
+                // Normal grid: 80% chance of fittable block, 20% chance fully random (for challenge)
+                if (Math.random() < 0.8 && fittingShapes.length > 0) {
+                    pool = fittingShapes;
+                } else {
+                    pool = BLOCK_SHAPES;
+                }
+            }
         }
 
-        // Deep clone grid for simulation
-        const simGrid = gameState.grid.map(row => [...row]);
-        if (solveSequence(simGrid, candidateSet, 0)) {
-            bestSet = candidateSet;
-            validSetFound = true;
-            break;
-        }
-
-        if (attempt === 0) bestSet = candidateSet; // Keep first guess
+        const shape = pool[Math.floor(Math.random() * pool.length)];
+        resultSet.push({
+            ...shape,
+            gradient: Math.floor(Math.random() * 7) + 1
+        });
     }
 
-    // MERCY FALLBACK: If no valid set found, give 1x1 mercy blocks
-    if (!validSetFound) {
-        console.log("Mercy fallback triggered: Generating 1x1 blocks.");
-        bestSet = [];
-        for (let i = 0; i < count; i++) {
-            bestSet.push({ ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 });
-        }
-    }
-
-    return bestSet;
+    return resultSet;
 }
 
 function generateNewBlocks() {
@@ -1228,23 +1296,30 @@ function getCompletableLines(row, col, block) {
 
     // Simulate placing the block
     const tempGrid = gameState.grid.map(r => [...r]);
+
+    // Track which rows and columns the block touches
+    const touchedRows = new Set();
+    const touchedCols = new Set();
+
     block.cells.forEach(([dr, dc]) => {
         const r = row + dr;
         const c = col + dc;
         if (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE) {
             tempGrid[r][c] = 1; // Mark as filled
+            touchedRows.add(r);
+            touchedCols.add(c);
         }
     });
 
-    // Check rows
-    for (let r = 0; r < GRID_SIZE; r++) {
+    // Only check rows that the block touches
+    for (const r of touchedRows) {
         if (tempGrid[r].every(cell => cell !== null)) {
             linesToComplete.push({ type: 'row', index: r });
         }
     }
 
-    // Check columns
-    for (let c = 0; c < GRID_SIZE; c++) {
+    // Only check columns that the block touches
+    for (const c of touchedCols) {
         if (tempGrid.every(row => row[c] !== null)) {
             linesToComplete.push({ type: 'col', index: c });
         }
@@ -1434,6 +1509,9 @@ function placeBlock(row, col, blockIndex) {
 
         if (gameState.comboCount > 1) {
             showCombo(gameState.comboCount);
+
+            // Add fantastic visual effects for combos
+            triggerComboVisualEffects(gameState.comboCount);
         }
 
         const baseBonus = clearedLines * 100 * (clearedLines > 1 ? clearedLines : 1);
@@ -1496,6 +1574,49 @@ function showCombo(comboCount) {
 }
 
 // ========================================
+// Trigger Combo Visual Effects
+// ========================================
+function triggerComboVisualEffects(comboCount) {
+    const grid = elements.gameGrid;
+
+    // Remove any existing combo effects
+    grid.classList.remove('combo-effect-2', 'combo-effect-3', 'combo-effect-5', 'combo-effect-epic');
+
+    // Apply effect based on combo level
+    let effectClass = '';
+    let vibrationPattern = [];
+
+    if (comboCount >= 7) {
+        effectClass = 'combo-effect-epic';
+        vibrationPattern = [100, 50, 100, 50, 100]; // Epic pattern
+    } else if (comboCount >= 5) {
+        effectClass = 'combo-effect-5';
+        vibrationPattern = [80, 40, 80]; // Large pattern
+    } else if (comboCount >= 3) {
+        effectClass = 'combo-effect-3';
+        vibrationPattern = [60, 30, 60]; // Medium pattern
+    } else {
+        effectClass = 'combo-effect-2';
+        vibrationPattern = [40]; // Small pattern
+    }
+
+    // Apply visual effect
+    if (effectClass) {
+        grid.classList.add(effectClass);
+
+        // Vibration feedback if enabled
+        if (gameState.settings.vibrationEnabled && navigator.vibrate) {
+            navigator.vibrate(vibrationPattern);
+        }
+
+        // Remove effect after animation (longest animation is ~1s)
+        setTimeout(() => {
+            grid.classList.remove(effectClass);
+        }, 1200);
+    }
+}
+
+// ========================================
 // Show Praise Notification
 // ========================================
 function showPraise(linesCleared, combo) {
@@ -1536,7 +1657,7 @@ function checkAndClearLines(sourceRow, sourceCol, suppressSound = false) {
 
         // Play sound unless suppressed (e.g., by bomb)
         if (!suppressSound) {
-            sounds.clear(linesToClear.length);
+            sounds.clear(linesToClear.length, gameState.comboCount);
         }
 
         // Check for "Clean Slate" (Empty Grid) after clearing
@@ -2015,6 +2136,11 @@ function showLobby() {
     lobbyScreen.style.display = 'flex';
     gameContainer.style.display = 'none';
 
+    // Show footer in lobby
+    if (elements.footer) {
+        elements.footer.classList.remove('hidden');
+    }
+
     // Show High Score in Lobby
     const lobbyHighScore = document.getElementById('lobbyHighScore');
     const lobbyHighScoreValue = document.getElementById('lobbyHighScoreValue');
@@ -2039,6 +2165,11 @@ function showLobby() {
 function showGame() {
     lobbyScreen.style.display = 'none';
     gameContainer.style.display = 'block';
+
+    // Hide footer during gameplay
+    if (elements.footer) {
+        elements.footer.classList.add('hidden');
+    }
 }
 
 function showOptionsMenu() {
@@ -2109,10 +2240,135 @@ cancelRestartBtn.addEventListener('click', () => {
 });
 optionsMenu.querySelector('.options-overlay').addEventListener('click', hideOptionsMenu);
 
+// ========================================
+// Settings System
+// ========================================
+const settingsButton = document.getElementById('settingsButton');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+const soundToggle = document.getElementById('soundToggle');
+
+function loadSettings() {
+    try {
+        const saved = localStorage.getItem('blockglassSettings');
+        if (saved) {
+            const settings = JSON.parse(saved);
+            gameState.settings.soundEnabled = settings.soundEnabled !== undefined ? settings.soundEnabled : true;
+
+            // Update UI
+            if (soundToggle) {
+                soundToggle.checked = gameState.settings.soundEnabled;
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+    }
+}
+
+function saveSettings() {
+    try {
+        localStorage.setItem('blockglassSettings', JSON.stringify(gameState.settings));
+    } catch (error) {
+        console.error('Failed to save settings:', error);
+    }
+}
+
+function showSettings() {
+    settingsModal.classList.remove('hidden');
+}
+
+function hideSettings() {
+    settingsModal.classList.add('hidden');
+    settingsModal.style.cssText = ''; // Clear all forced inline styles
+}
+
+// Event Listeners
+if (settingsButton) {
+    settingsButton.addEventListener('click', showSettings);
+}
+
+if (closeSettingsBtn) {
+    closeSettingsBtn.addEventListener('click', hideSettings);
+}
+
+if (settingsModal) {
+    settingsModal.querySelector('.options-overlay').addEventListener('click', hideSettings);
+}
+
+if (soundToggle) {
+    soundToggle.addEventListener('change', (e) => {
+        gameState.settings.soundEnabled = e.target.checked;
+        saveSettings();
+
+        // Play a test sound if enabled
+        if (e.target.checked && audioCtx.state === 'suspended') {
+            audioCtx.resume().then(() => {
+                sounds.tick();
+            });
+        }
+    });
+}
+
+// Vibration Toggle
+const vibrationToggle = document.getElementById('vibrationToggle');
+if (vibrationToggle) {
+    vibrationToggle.addEventListener('change', (e) => {
+        gameState.settings.vibrationEnabled = e.target.checked;
+        saveSettings();
+
+        // Test vibration if enabled
+        if (e.target.checked && navigator.vibrate) {
+            navigator.vibrate(40);
+        }
+    });
+}
+
+// Lobby Settings Button - MUST be after showSettings is defined
+const lobbySettingsButton = document.getElementById('lobbySettingsButton');
+if (lobbySettingsButton) {
+    lobbySettingsButton.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Force show settings directly - bypass showSettings() function
+        const modal = document.getElementById('settingsModal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            // !important in .hidden overrides inline styles, so removing class is critical
+            // Also force styles as backup
+            modal.style.cssText = 'display: flex !important; z-index: 3000 !important; position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; align-items: center !important; justify-content: center !important;';
+        }
+
+        // Resume audio context
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    });
+} else {
+    console.error('lobbySettingsButton not found in DOM!');
+}
+
+// ========================================
+// Universal Button Click Sound
+// ========================================
+// Add click sound to all buttons
+document.addEventListener('click', (e) => {
+    const button = e.target.closest('button');
+    if (button) {
+        // Resume audio context if suspended
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        sounds.uiClick();
+    }
+}, true); // Use capture phase to ensure it fires first
+
 // Auto-save wrapper removed in favor of direct calls
 
 // ========================================
 // Start Game
 // ========================================
+loadSettings(); // Load settings first
 initGame();
 showLobby();
+

@@ -1,0 +1,136 @@
+/* ========================================
+   Combo Visual Effects
+   ======================================== */
+@keyframes combo-shake-small {
+
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+
+    25% {
+        transform: translate(-3px, 3px);
+    }
+
+    50% {
+        transform: translate(3px, -3px);
+    }
+
+    75% {
+        transform: translate(-3px, -3px);
+    }
+}
+
+@keyframes combo-shake-medium {
+
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+
+    25% {
+        transform: translate(-6px, 6px);
+    }
+
+    50% {
+        transform: translate(6px, -6px);
+    }
+
+    75% {
+        transform: translate(-6px, -6px);
+    }
+}
+
+@keyframes combo-shake-large {
+
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+
+    20% {
+        transform: translate(-8px, 8px) rotate(0.5deg);
+    }
+
+    40% {
+        transform: translate(8px, -8px) rotate(-0.5deg);
+    }
+
+    60% {
+        transform: translate(-8px, -8px) rotate(0.5deg);
+    }
+
+    80% {
+        transform: translate(8px, 8px) rotate(-0.5deg);
+    }
+}
+
+@keyframes combo-shake-epic {
+
+    0%,
+    100% {
+        transform: translate(0, 0) scale(1);
+    }
+
+    15% {
+        transform: translate(-12px, 12px) rotate(1deg) scale(1.01);
+    }
+
+    30% {
+        transform: translate(12px, -12px) rotate(-1deg) scale(1.01);
+    }
+
+    45% {
+        transform: translate(-12px, -12px) rotate(1deg) scale(1.01);
+    }
+
+    60% {
+        transform: translate(12px, 12px) rotate(-1deg) scale(1.01);
+    }
+
+    75% {
+        transform: translate(-8px, 8px) rotate(0.5deg) scale(1.005);
+    }
+}
+
+@keyframes combo-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 20px rgba(139, 233, 253, 0.5);
+    }
+
+    50% {
+        box-shadow:
+            0 0 40px rgba(139, 233, 253, 0.8),
+            0 0 80px rgba(139, 233, 253, 0.5),
+            inset 0 0 20px rgba(139, 233, 253, 0.3);
+    }
+}
+
+@keyframes rainbow-border {
+    0% {
+        filter: hue-rotate(0deg);
+    }
+
+    100% {
+        filter: hue-rotate(360deg);
+    }
+}
+
+/* Combo effect classes - applied dynamically based on combo level */
+.combo-effect-2 {
+    animation: combo-shake-small 0.3s ease-in-out, combo-glow 0.6s ease-in-out;
+}
+
+.combo-effect-3 {
+    animation: combo-shake-medium 0.4s ease-in-out, combo-glow 0.6s ease-in-out, rainbow-border 1s linear infinite;
+}
+
+.combo-effect-5 {
+    animation: combo-shake-large 0.5s ease-in-out, combo-glow 0.8s ease-in-out, rainbow-border 0.8s linear infinite;
+}
+
+.combo-effect-epic {
+    animation: combo-shake-epic 0.6s ease-in-out, combo-glow 1s ease-in-out, rainbow-border 0.5s linear infinite;
+}

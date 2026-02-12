@@ -33,6 +33,16 @@
     --text-secondary: rgba(255, 255, 255, 0.7);
     --text-accent: hsl(195, 85%, 65%);
 
+    /* Responsive Sizing - scales from mobile to desktop */
+    /* Grid cell size: 35px on mobile, up to 100px on large desktop */
+    --cell-size: clamp(35px, 7vw, 100px);
+    --powerup-btn-size: clamp(56px, 10vw, 120px);
+    /* Container width: scales up to 1000px for large screens */
+    --container-width: min(95vw, 1000px);
+
+    /* Block tray spacing - responsive gap between blocks */
+    --blocks-gap: clamp(12px, 3vw, 40px);
+
     /* Spacing */
     --spacing-sm: 0.5rem;
     --spacing-md: 1rem;
@@ -40,8 +50,16 @@
     --spacing-xl: 2rem;
 
     /* Transitions */
-    --transition-fast: 0.2s ease;
+    --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    /* Z-Index Layers */
+    --z-background: -1;
+    --z-game: 10;
+    --z-ui: 100;
+    --z-overlay: 1000;
+    --z-modal: 2000;
 }
 
 /* ========================================
@@ -323,8 +341,8 @@ body {
 }
 
 .grid-cell {
-    width: 42px;
-    height: 42px;
+    width: var(--cell-size);
+    height: var(--cell-size);
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
@@ -433,14 +451,14 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: var(--spacing-sm);
+    gap: clamp(12px, 4vw, 40px);
+    /* Responsive gap - much wider on desktop */
     flex-wrap: nowrap;
     width: 100%;
-    /* Wider tray - use calc to prevent overflow */
-    width: calc(100% - 20px);
+    max-width: 800px;
+    /* Match container max-width */
     margin: 0 auto;
-    /* Shorter vertical padding, keep horizontal for spacing */
-    padding: 8px 12px;
+    padding: 12px;
     box-sizing: border-box;
     /* More translucent glassmorphism background */
     background: rgba(13, 17, 23, 0.3);
@@ -452,6 +470,8 @@ body {
     box-shadow:
         0 0 20px rgba(88, 166, 255, 0.3),
         inset 0 0 20px rgba(88, 166, 255, 0.1);
+    min-height: 140px;
+    /* Ensure enough height for larger blocks */
 }
 
 .block-preview {
@@ -464,6 +484,8 @@ body {
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     /* Fixed size - prevents resizing when items removed */
     flex-shrink: 0;
     /* Smaller fixed dimensions for tinier blocks */
@@ -473,13 +495,13 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    /* Smaller scale */
+    /* Default mobile scale */
     transform: scale(0.45);
     transform-origin: center;
 }
 
 .block-preview:hover {
-    /* Subtle lift on hover, slightly larger */
+    /* Subtle lift on hover */
     transform: translateY(-4px) scale(0.5);
     background: transparent;
 }
@@ -504,9 +526,9 @@ body {
 }
 
 .block-cell {
-    width: 42px;
-    /* Set to match grid-cell (42px) */
-    height: 42px;
+    width: var(--cell-size);
+    /* Set to match grid-cell */
+    height: var(--cell-size);
     border-radius: 6px;
     transition: all var(--transition-fast);
 }
@@ -953,6 +975,28 @@ body {
     }
 }
 
+/* Tablet: scale up block previews */
+@media (min-width: 768px) {
+    .block-preview {
+        transform: scale(0.65);
+    }
+
+    .block-preview:hover {
+        transform: translateY(-4px) scale(0.7);
+    }
+}
+
+/* Desktop: scale up block previews further */
+@media (min-width: 1200px) {
+    .block-preview {
+        transform: scale(0.85);
+    }
+
+    .block-preview:hover {
+        transform: translateY(-4px) scale(0.9);
+    }
+}
+
 /* ========================================
    Power-ups Panel
    ======================================== */
@@ -994,10 +1038,10 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 64px;
-    /* Fixed square size */
-    height: 64px;
-    /* Fixed square size */
+    width: var(--powerup-btn-size);
+    /* Responsive size */
+    height: var(--powerup-btn-size);
+    /* Responsive size */
     position: relative;
     font-family: inherit;
     touch-action: none;

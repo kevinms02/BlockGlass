@@ -1,0 +1,11 @@
+{
+    "appId": "com.blockglass.app",
+    "appName": "BlockGlass",
+    "webDir": ".",
+    "bundledWebRuntime": false,
+    "android": {
+        "buildOptions": {
+            "releaseType": "APK"
+        }
+    }
+}
