@@ -1,0 +1,44 @@
+/* ========================================
+   3:4 Aspect Ratio Support (Tablets/Foldables)
+   ======================================== */
+@media (min-aspect-ratio: 3/4) and (max-aspect-ratio: 1/1) {
+
+    /* Scale down everything slightly to fit vertically */
+    :root {
+        --cell-size: clamp(32px, 5.5vh, 45px);
+        /* Smaller cells */
+    }
+
+    .game-board-container {
+        padding: 10px;
+        gap: 8px;
+        /* Tighter gap */
+    }
+
+    .header {
+        padding: 5px 15px;
+        margin-bottom: 5px;
+    }
+
+    .score-container {
+        transform: scale(0.9);
+        /* Shrink score */
+    }
+
+    .blocks-panel {
+        padding: 10px;
+        min-height: 120px;
+        /* Reduced min-height */
+    }
+
+    .block-preview {
+        transform: scale(0.75);
+        /* Shrink tray blocks */
+        margin: 0 5px;
+    }
+
+    .powerups-panel {
+        transform: scale(0.9);
+        margin-bottom: 5px;
+    }
+}

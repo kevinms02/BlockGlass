@@ -411,6 +411,7 @@ const elements = {
     finalScore: document.getElementById('finalScore'),
     finalLines: document.getElementById('finalLines'),
     restartBtn: document.getElementById('restartBtn'),
+    exitBtn: document.getElementById('exitBtn'),
     particleContainer: document.getElementById('particleContainer'),
     newHighScoreContainer: document.getElementById('newHighScoreContainer'),
     bombPowerup: document.getElementById('bombPowerup'),
@@ -424,13 +425,51 @@ const elements = {
     comboDisplay: document.getElementById('comboDisplay'),
     comboValue: document.getElementById('comboValue'),
     praiseNotification: document.getElementById('praiseNotification'),
-    saveMeBtn: document.getElementById('saveMeBtn'),
+    saveMePopup: document.getElementById('saveMePopup'),
+    saveMeTimer: document.getElementById('saveMeTimer'),
+    saveMeActionBtn: document.getElementById('saveMeActionBtn'),
+    countdownCircle: document.getElementById('countdownCircle'),
     footer: document.querySelector('.game-footer')
 };
 
 // ========================================
 // Initialize Game
 // ========================================
+// AFK idle timer
+let idleTimer = null;
+let saveMeCountdownInterval = null;
+
+function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    // Remove any jump animations
+    document.querySelectorAll('.block-preview.hint-jump').forEach(el => {
+        el.classList.remove('hint-jump');
+    });
+    idleTimer = setTimeout(() => triggerIdleHint(), 15000);
+}
+
+function triggerIdleHint() {
+    const blocks = document.querySelectorAll('.block-preview:not(.dragging)');
+    if (blocks.length === 0 || gameState.isGameOver) return;
+
+    let i = 0;
+    const jumpNext = () => {
+        if (i >= blocks.length) {
+            // Restart idle timer after all blocks jumped
+            idleTimer = setTimeout(() => triggerIdleHint(), 15000);
+            return;
+        }
+        const block = blocks[i];
+        block.classList.add('hint-jump');
+        block.addEventListener('animationend', () => {
+            block.classList.remove('hint-jump');
+        }, { once: true });
+        i++;
+        setTimeout(jumpNext, 300);
+    };
+    jumpNext();
+}
+
 function initGame() {
     createGrid();
     addRandomStartBlocks();
@@ -440,42 +479,121 @@ function initGame() {
     setupPowerups();
     setupGlobalDragListeners();
     elements.restartBtn.addEventListener('click', restartGame);
-    if (elements.saveMeBtn) elements.saveMeBtn.addEventListener('click', handleSaveMe);
+
+    // Exit button -> go back to lobby
+    if (elements.exitBtn) {
+        elements.exitBtn.addEventListener('click', () => {
+            elements.gameOverModal.classList.add('hidden');
+            document.getElementById('gameContainer').style.display = 'none';
+            document.getElementById('lobbyScreen').style.display = '';
+        });
+    }
+
+    // Save Me action button
+    if (elements.saveMeActionBtn) {
+        elements.saveMeActionBtn.addEventListener('click', executeSaveMe);
+    }
+
+    // AFK idle detection
+    document.addEventListener('pointerdown', resetIdleTimer);
+    document.addEventListener('pointermove', resetIdleTimer);
+    resetIdleTimer();
 }
 
-function handleSaveMe() {
-    if (gameState.hasUsedSaveMe) return;
+// ========================================
+// Save Me Countdown System
+// ========================================
+function showSaveMeCountdown() {
+    let timeLeft = 5;
+    const circumference = 2 * Math.PI * 52; // r=52
+
+    elements.saveMePopup.classList.remove('hidden');
+    elements.saveMeTimer.textContent = timeLeft;
+    elements.countdownCircle.style.strokeDashoffset = '0';
+
+    clearInterval(saveMeCountdownInterval);
+    saveMeCountdownInterval = setInterval(() => {
+        timeLeft--;
+        elements.saveMeTimer.textContent = timeLeft;
+
+        // Animate ring: stroke-dashoffset goes from 0 to circumference
+        const progress = (5 - timeLeft) / 5;
+        elements.countdownCircle.style.strokeDashoffset = (progress * circumference).toString();
+
+        if (timeLeft <= 0) {
+            clearInterval(saveMeCountdownInterval);
+            elements.saveMePopup.classList.add('hidden');
+            // Time's up - show real game over
+            gameState.hasUsedSaveMe = true;
+            showFinalGameOver();
+        }
+    }, 1000);
+}
+
+function executeSaveMe() {
+    clearInterval(saveMeCountdownInterval);
+    elements.saveMePopup.classList.add('hidden');
 
     if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
 
-    // Clear center 4x4 area to allow play
-    const startIdx = 2; // (8-4)/2
-    const endIdx = 6;
+    // Explode random blocks in a scattered pattern (clear ~12-16 cells)
+    let cleared = 0;
+    const maxClear = 14;
+    const cellsToClear = [];
 
-    for (let r = startIdx; r < endIdx; r++) {
-        for (let c = startIdx; c < endIdx; c++) {
+    // Collect all filled cells
+    for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
             if (gameState.grid[r][c] !== null) {
-                createParticles(r, c);
-                gameState.grid[r][c] = null;
-                const cell = getCellElement(r, c);
-                if (cell) {
-                    cell.classList.remove('filled');
-                    cell.style.background = '';
-                }
+                cellsToClear.push([r, c]);
             }
         }
     }
 
+    // Shuffle and pick random cells to clear
+    for (let i = cellsToClear.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cellsToClear[i], cellsToClear[j]] = [cellsToClear[j], cellsToClear[i]];
+    }
+
+    for (const [r, c] of cellsToClear) {
+        if (cleared >= maxClear) break;
+        createParticles(r, c);
+        gameState.grid[r][c] = null;
+        const cell = getCellElement(r, c);
+        if (cell) {
+            cell.classList.remove('filled');
+            cell.style.background = '';
+        }
+        cleared++;
+    }
+
     gameState.hasUsedSaveMe = true;
     gameState.isGameOver = false;
-    elements.gameOverModal.classList.add('hidden');
     sounds.powerup();
 
-    // Give user a fresh set of blocks if current ones are impossible
-    // Actually, just let them try with current blocks first, if they can't they can't.
-    // But usually clearing center helps.
+    // Regenerate solvable blocks for tray
+    generateNewBlocks();
+    renderGrid();
+    updateUI();
+    resetIdleTimer();
+}
 
-    checkGameOver(); // Verify state
+function showFinalGameOver() {
+    gameState.isGameOver = true;
+
+    if (gameState.score > gameState.highScore) {
+        gameState.highScore = gameState.score;
+        localStorage.setItem('blockglassHighScore', gameState.highScore);
+        elements.newHighScoreContainer.style.display = 'block';
+    } else {
+        elements.newHighScoreContainer.style.display = 'none';
+    }
+
+    elements.finalScore.textContent = gameState.score;
+    elements.finalLines.textContent = gameState.linesCleared;
+    elements.gameOverModal.classList.remove('hidden');
+    sounds.fail();
 }
 
 // ========================================
@@ -782,6 +900,7 @@ function executeRoll() {
 
     gameState.powerups.roll--;
     sounds.powerup();
+    hideStuckPopup();
 
     renderAvailableBlocks();
     checkGameOver();
@@ -823,21 +942,64 @@ function getBlockDimensions(cells) {
 // Generate Random Blocks (Smart Algorithm)
 // ========================================
 
-// Helper: check if a specific block shape can be placed anywhere on a grid
-function canFitAnywhere(grid, block) {
+// Helper: simulate placing a block on a grid copy and clear completed lines
+function simulatePlaceAndClear(grid, block, row, col) {
+    const newGrid = grid.map(r => [...r]);
+    block.cells.forEach(([dr, dc]) => {
+        newGrid[row + dr][col + dc] = 1;
+    });
+    // Clear completed rows and columns
+    for (let r = 0; r < GRID_SIZE; r++) {
+        if (newGrid[r].every(cell => cell !== null)) {
+            newGrid[r] = new Array(GRID_SIZE).fill(null);
+        }
+    }
+    for (let c = 0; c < GRID_SIZE; c++) {
+        if (newGrid.every(row => row[c] !== null)) {
+            for (let r = 0; r < GRID_SIZE; r++) {
+                newGrid[r][c] = null;
+            }
+        }
+    }
+    return newGrid;
+}
+
+// Helper: find a valid placement position for a block on a grid
+function findPlacement(grid, block) {
     for (let r = 0; r < GRID_SIZE; r++) {
         for (let c = 0; c < GRID_SIZE; c++) {
             let fits = true;
-            for (let i = 0; i < block.cells.length; i++) {
-                const [dr, dc] = block.cells[i];
-                const tr = r + dr;
-                const tc = c + dc;
+            for (const [dr, dc] of block.cells) {
+                const tr = r + dr, tc = c + dc;
                 if (tr < 0 || tr >= GRID_SIZE || tc < 0 || tc >= GRID_SIZE || grid[tr][tc] !== null) {
                     fits = false;
                     break;
                 }
             }
-            if (fits) return true;
+            if (fits) return { row: r, col: c };
+        }
+    }
+    return null;
+}
+
+// Helper: check if a block can be placed anywhere on a grid
+function canFitAnywhere(grid, block) {
+    return findPlacement(grid, block) !== null;
+}
+
+// Smart solver: check if blocks can be placed in SOME order (with line clears)
+function canSolveWithClears(grid, blocks) {
+    if (blocks.length === 0) return true;
+
+    // Try each block as the next one to place
+    for (let i = 0; i < blocks.length; i++) {
+        const placement = findPlacement(grid, blocks[i]);
+        if (placement) {
+            const newGrid = simulatePlaceAndClear(grid, blocks[i], placement.row, placement.col);
+            const remaining = blocks.filter((_, idx) => idx !== i);
+            if (canSolveWithClears(newGrid, remaining)) {
+                return true;
+            }
         }
     }
     return false;
@@ -875,50 +1037,60 @@ function getSolvableBlockSet(count) {
         return mercySet;
     }
 
-    // Step 3: Build the block set — guarantee at least 1 fits
-    const resultSet = [];
+    // Step 3: Try to build a solvable set (with line clear simulation)
+    const MAX_ATTEMPTS = 300; // Increased from 150 for better chances on tight grids
 
-    for (let i = 0; i < count; i++) {
-        let pool;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const resultSet = [];
 
-        if (i === 0) {
-            // FIRST block MUST be placeable — pick from fitting shapes
-            // On tight grids, strongly prefer small shapes
+        for (let i = 0; i < count; i++) {
+            let pool;
+
+            // On very tight grids, biased heavily towards small pieces
             if (isGridVeryTight && smallFittingShapes.length > 0) {
-                pool = smallFittingShapes;
-            } else if (isGridTight && smallFittingShapes.length > 0 && Math.random() < 0.7) {
-                pool = smallFittingShapes;
+                // 80% chance for small shapes on very tight grid
+                pool = (Math.random() < 0.8) ? smallFittingShapes : fittingShapes;
+            } else if (isGridTight && smallFittingShapes.length > 0) {
+                // 50% chance for small shapes on tight grid
+                pool = (Math.random() < 0.5) ? smallFittingShapes : fittingShapes;
             } else {
-                pool = fittingShapes;
+                pool = fittingShapes; // Normal distribution
             }
-        } else {
-            // Other blocks: TRY to pick fitting shapes, but allow occasional unfittable ones
-            // for challenge. On tight grids, always pick fittable.
-            if (isGridTight) {
-                // Tight grid: all blocks should be fittable
-                if (isGridVeryTight && smallFittingShapes.length > 0) {
-                    pool = smallFittingShapes;
-                } else {
-                    pool = fittingShapes;
-                }
-            } else {
-                // Normal grid: 80% chance of fittable block, 20% chance fully random (for challenge)
-                if (Math.random() < 0.8 && fittingShapes.length > 0) {
-                    pool = fittingShapes;
-                } else {
-                    pool = BLOCK_SHAPES;
-                }
-            }
+
+            const shape = pool[Math.floor(Math.random() * pool.length)];
+            resultSet.push({
+                ...shape,
+                gradient: Math.floor(Math.random() * 7) + 1
+            });
         }
 
-        const shape = pool[Math.floor(Math.random() * pool.length)];
-        resultSet.push({
-            ...shape,
+        // Verify: all 3 blocks can be placed in some order (with line clears between)
+        if (canSolveWithClears(grid, resultSet)) {
+            return resultSet;
+        }
+    }
+
+    // Fallback: return small blocks that individually fit
+    console.log("Could not find solvable set, falling back to mercy blocks");
+    const fallback = [];
+
+    // MERCY RULE: If grid is tight, FORCE a 1x1 block (index 0) if it fits. 
+    // This gives the user a fighting chance to clear a line.
+    if (isGridTight && canFitAnywhere(grid, BLOCK_SHAPES[0])) {
+        fallback.push({ ...BLOCK_SHAPES[0], gradient: Math.floor(Math.random() * 7) + 1 });
+    }
+
+    const fallbackPool = smallFittingShapes.length > 0 ? smallFittingShapes : fittingShapes;
+
+    // Fill remaining slots
+    while (fallback.length < count) {
+        fallback.push({
+            ...fallbackPool[Math.floor(Math.random() * fallbackPool.length)],
             gradient: Math.floor(Math.random() * 7) + 1
         });
     }
 
-    return resultSet;
+    return fallback;
 }
 
 function generateNewBlocks() {
@@ -1494,10 +1666,10 @@ function placeBlock(row, col, blockIndex) {
 
     // Show points for placement at the center of the block
     const lastCell = block.cells[block.cells.length - 1];
-    showFloatingScore(block.cells.length * 10, row + lastCell[0], col + lastCell[1]);
+    showFloatingScore(block.cells.length * 15, row + lastCell[0], col + lastCell[1]);
 
     sounds.place(440 + block.cells.length * 20);
-    gameState.score += block.cells.length * 10;
+    gameState.score += block.cells.length * 15;
     block.used = true;
 
     const clearedLines = checkAndClearLines(row, col);
@@ -1886,25 +2058,14 @@ function hideStuckPopup() {
 function gameOver() {
     gameState.isGameOver = true;
 
-    if (gameState.score > gameState.highScore) {
-        gameState.highScore = gameState.score;
-        localStorage.setItem('blockglassHighScore', gameState.highScore);
-        elements.newHighScoreContainer.style.display = 'block';
-    } else {
-        elements.newHighScoreContainer.style.display = 'none';
+    // First failure: Show Save Me countdown
+    if (!gameState.hasUsedSaveMe) {
+        showSaveMeCountdown();
+        return;
     }
 
-    elements.finalScore.textContent = gameState.score;
-    elements.finalLines.textContent = gameState.linesCleared;
-    elements.gameOverModal.classList.remove('hidden');
-    sounds.fail();
-
-    // Show Save Me button if not used yet
-    if (!gameState.hasUsedSaveMe && elements.saveMeBtn) {
-        elements.saveMeBtn.style.display = 'block';
-    } else if (elements.saveMeBtn) {
-        elements.saveMeBtn.style.display = 'none';
-    }
+    // Subsequent failures: Show final game over screen
+    showFinalGameOver();
 }
 
 // ========================================
@@ -2007,16 +2168,21 @@ async function restartGame() {
     gameState.undoHistory = [];
     gameState.comboCount = 0;
     gameState.hasUsedSaveMe = false;
-    gameState.scoredInCurrentCycle = false; // Reset cycle score flag
+    gameState.scoredInCurrentCycle = false;
+
+    // Hide modals IMMEDIATELY before animation
+    elements.gameOverModal.classList.add('hidden');
+    elements.saveMePopup.classList.add('hidden');
+    hideStuckPopup();
+    clearInterval(saveMeCountdownInterval);
 
     // Trigger the Grid Sweep animation with start blocks
     await triggerGridSweepAnimation(true);
 
-    elements.gameOverModal.classList.add('hidden');
-
     generateNewBlocks();
     updateUI();
     updatePowerupUI();
+    resetIdleTimer();
 }
 
 function updateUI() {

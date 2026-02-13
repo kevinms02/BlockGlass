@@ -61,7 +61,7 @@
                     </svg>
                     @kevinmahardyan
                 </a>
-                <div class="lobby-version">BlockGlass Beta v1.4</div>
+                <div class="lobby-version">BlockGlass Beta v1.5</div>
             </div>
         </div>
     </div>
@@ -203,11 +203,25 @@
                     </div>
                 </div>
 
-                <button id="saveMeBtn" class="restart-btn save-me-btn" style="display: none;">
-                    Save Me (Clear Center)
-                </button>
-
+                <button id="exitBtn" class="restart-btn exit-btn">Exit to Lobby</button>
                 <button id="restartBtn" class="restart-btn">Play Again</button>
+            </div>
+        </div>
+
+        <!-- Save Me Countdown Popup -->
+        <div id="saveMePopup" class="modal hidden">
+            <div class="modal-content glass-panel save-me-panel">
+                <h2 class="modal-title save-me-title">Last Chance!</h2>
+                <div class="save-me-countdown-ring">
+                    <svg viewBox="0 0 120 120" class="countdown-svg">
+                        <circle class="countdown-bg" cx="60" cy="60" r="52" />
+                        <circle class="countdown-progress" id="countdownCircle" cx="60" cy="60" r="52" />
+                    </svg>
+                    <span class="save-me-timer" id="saveMeTimer">5</span>
+                </div>
+                <button id="saveMeActionBtn" class="restart-btn save-me-action-btn">
+                    Save Me!
+                </button>
             </div>
         </div>
 
