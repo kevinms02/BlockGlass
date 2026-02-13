@@ -25,7 +25,8 @@ const gameState = {
     settings: {
         soundEnabled: true,
         vibrationEnabled: true
-    }
+    },
+    feedbackDismissed: false // Track if user dismissed feedback popup
 };
 
 // Drag state
@@ -73,6 +74,7 @@ const sounds = {
         this.loadSound('Assets/SoundEffects/fail-234710.mp3', 'fail');
         this.loadSound('Assets/SoundEffects/block-placed.mp3', 'place');
         this.loadSound('Assets/SoundEffects/virtual_vibes-pop-tap-click-fx-383733.mp3', 'uiClick');
+        this.loadSound('Assets/SoundEffects/freesound_community-countdown-beep-104007.mp3', 'countdown');
     },
     loadSound: function (url, key) {
         fetch(url)
@@ -429,7 +431,12 @@ const elements = {
     saveMeTimer: document.getElementById('saveMeTimer'),
     saveMeActionBtn: document.getElementById('saveMeActionBtn'),
     countdownCircle: document.getElementById('countdownCircle'),
-    footer: document.querySelector('.game-footer')
+    footer: document.querySelector('.game-footer'),
+    // Feedback Integration
+    feedbackBtn: document.getElementById('feedbackBtn'),
+    feedbackModal: document.getElementById('feedbackModal'),
+    openFeedbackFormBtn: document.getElementById('openFeedbackFormBtn'),
+    skipFeedbackBtn: document.getElementById('skipFeedbackBtn')
 };
 
 // ========================================
@@ -494,6 +501,27 @@ function initGame() {
         elements.saveMeActionBtn.addEventListener('click', executeSaveMe);
     }
 
+    // Feedback Listeners
+    if (elements.feedbackBtn) {
+        elements.feedbackBtn.addEventListener('click', () => {
+            window.open('https://forms.gle/VGPcPNiAM1UwYjdX6', '_blank');
+        });
+    }
+
+    if (elements.openFeedbackFormBtn) {
+        elements.openFeedbackFormBtn.addEventListener('click', () => {
+            window.open('https://forms.gle/VGPcPNiAM1UwYjdX6', '_blank');
+            if (elements.feedbackModal) elements.feedbackModal.classList.add('hidden');
+        });
+    }
+
+    if (elements.skipFeedbackBtn) {
+        elements.skipFeedbackBtn.addEventListener('click', () => {
+            gameState.feedbackDismissed = true; // Mark as dismissed for this session
+            if (elements.feedbackModal) elements.feedbackModal.classList.add('hidden');
+        });
+    }
+
     // AFK idle detection
     document.addEventListener('pointerdown', resetIdleTimer);
     document.addEventListener('pointermove', resetIdleTimer);
@@ -511,10 +539,37 @@ function showSaveMeCountdown() {
     elements.saveMeTimer.textContent = timeLeft;
     elements.countdownCircle.style.strokeDashoffset = '0';
 
+    // Play initial countdown beep
+    if (sounds.buffer.countdown && gameState.settings.soundEnabled) {
+        // Resume audio context if suspended
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+
+        const source = audioCtx.createBufferSource();
+        const gainNode = audioCtx.createGain();
+        source.buffer = sounds.buffer.countdown;
+        gainNode.gain.value = 0.5; // Set volume to 50%
+        source.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        source.start(0, 0, 1); // Play first 1 second of the sound
+    }
+
     clearInterval(saveMeCountdownInterval);
     saveMeCountdownInterval = setInterval(() => {
         timeLeft--;
         elements.saveMeTimer.textContent = timeLeft;
+
+        // Play countdown beep for each tick (except when time runs out)
+        if (timeLeft > 0 && sounds.buffer.countdown && gameState.settings.soundEnabled) {
+            const source = audioCtx.createBufferSource();
+            const gainNode = audioCtx.createGain();
+            source.buffer = sounds.buffer.countdown;
+            gainNode.gain.value = 0.5; // Set volume to 50%
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            source.start(0, 0, 1); // Play first 1 second of the sound
+        }
 
         // Animate ring: stroke-dashoffset goes from 0 to circumference
         const progress = (5 - timeLeft) / 5;
@@ -522,10 +577,13 @@ function showSaveMeCountdown() {
 
         if (timeLeft <= 0) {
             clearInterval(saveMeCountdownInterval);
-            elements.saveMePopup.classList.add('hidden');
-            // Time's up - show real game over
-            gameState.hasUsedSaveMe = true;
-            showFinalGameOver();
+            // Wait 1 second to let user see "0" before hiding modal
+            setTimeout(() => {
+                elements.saveMePopup.classList.add('hidden');
+                // Time's up - show real game over
+                gameState.hasUsedSaveMe = true;
+                showFinalGameOver();
+            }, 1000);
         }
     }, 1000);
 }
@@ -594,6 +652,16 @@ function showFinalGameOver() {
     elements.finalLines.textContent = gameState.linesCleared;
     elements.gameOverModal.classList.remove('hidden');
     sounds.fail();
+
+    // Trigger Feedback Popup after a short delay (only if not dismissed)
+    if (!gameState.feedbackDismissed) {
+        setTimeout(() => {
+            if (elements.feedbackModal) {
+                elements.feedbackModal.classList.remove('hidden');
+                if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
+            }
+        }, 1200);
+    }
 }
 
 // ========================================
@@ -804,6 +872,8 @@ function executeBomb(centerRow, centerCol) {
     const centerCell = getCellElement(centerRow, centerCol);
     if (centerCell) {
         showFloatingScore(100, centerRow, centerCol, true); // Big score for bomb
+        gameState.score += 100; // Actually add the points
+        updateUI(); // Update the score counter immediately
     }
 
     patternOffsets.forEach(({ r, c, d }) => {
@@ -2186,8 +2256,19 @@ async function restartGame() {
 }
 
 function updateUI() {
-    elements.score.textContent = gameState.score;
+    const oldScore = parseInt(elements.score.textContent) || 0;
+    const newScore = gameState.score;
+
+    elements.score.textContent = newScore;
     elements.highScore.textContent = gameState.highScore;
+
+    // Trigger popup animation if score changed
+    if (newScore !== oldScore) {
+        elements.score.classList.remove('score-popup');
+        // Force reflow to restart animation
+        void elements.score.offsetWidth;
+        elements.score.classList.add('score-popup');
+    }
 }
 
 // ========================================
@@ -2347,9 +2428,9 @@ function hideOptionsMenu() {
 }
 
 async function startNewGame() {
+    showGame(); // Show game screen FIRST
     clearGameState();
     await restartGame();
-    showGame();
 }
 
 async function continueGame() {
@@ -2376,15 +2457,16 @@ function restartFromMenu() {
 
 // Event Listeners
 playButton.addEventListener('click', async () => {
-    sounds.bonus();
     // Smart Play: Continue if save exists and not game over, else New Game
     const savedGame = loadGameState();
     if (savedGame && !savedGame.isGameOver) {
+        showGame(); // Show game screen FIRST
+        sounds.bonus();
         restoreGameState(savedGame);
-        showGame();
         // Play sweep animation when entering the game with start blocks
         await triggerGridSweepAnimation(true);
     } else {
+        sounds.bonus();
         startNewGame();
     }
 });
